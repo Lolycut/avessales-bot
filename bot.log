@@ -1,0 +1,379 @@
+2026-08-28 00:31:33,605 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-groups/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2 "HTTP/1.1 200 OK"
+2026-08-28 00:31:33,641 - [INFO] - root - Синхронизировано 13 групп (2 курс) в БД.
+2026-08-28 00:31:33,987 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-week-for-date/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2&date=2026-08-24 "HTTP/1.1 200 OK"
+2026-08-28 00:31:33,990 - [ERROR] - root - Не удалось найти week_id для 2026-08-24
+2026-08-28 00:34:52,513 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-groups/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2 "HTTP/1.1 200 OK"
+2026-08-28 00:34:52,536 - [INFO] - root - Синхронизировано 13 групп (2 курс) в БД.
+2026-08-28 00:34:52,965 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-week-for-date/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2&date=2026-08-24 "HTTP/1.1 200 OK"
+2026-08-28 00:34:53,304 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-schedule/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2&week_id=65 "HTTP/1.1 200 OK"
+2026-08-28 00:34:53,306 - [WARNING] - root - Расписание для недели 65 пустое или сайт недоступен
+2026-08-28 00:36:53,685 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-groups/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2 "HTTP/1.1 200 OK"
+2026-08-28 00:36:53,708 - [INFO] - root - Синхронизировано 13 групп (2 курс) в БД.
+2026-08-28 00:36:54,087 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-week-for-date/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2&date=2026-08-31 "HTTP/1.1 200 OK"
+2026-08-28 00:36:54,648 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-schedule/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2&week_id=66 "HTTP/1.1 200 OK"
+2026-08-28 00:36:54,677 - [INFO] - root - Успешно сохранено 102 записей расписания на неделю (week_id=66).
+2026-08-28 00:43:12,809 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-groups/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2 "HTTP/1.1 200 OK"
+2026-08-28 00:43:12,830 - [INFO] - root - Синхронизировано 13 групп (2 курс) в БД.
+2026-08-28 00:43:13,234 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-week-for-date/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2&date=2026-08-31 "HTTP/1.1 200 OK"
+2026-08-28 00:43:13,743 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-schedule/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2&week_id=66 "HTTP/1.1 200 OK"
+2026-08-28 00:43:13,846 - [INFO] - root - Успешно сохранено 102 записей расписания на неделю (week_id=66).
+2026-08-28 00:45:06,353 - [INFO] - root - Инитиализация...
+2026-08-28 00:45:06,423 - [INFO] - root - Бот старт!
+2026-08-28 00:45:06,423 - [INFO] - aiogram.dispatcher - Start polling
+2026-08-28 00:45:09,820 - [INFO] - aiogram.dispatcher - Run polling for bot @schedulebiobot id=8380079376 - 'Hueplet'
+2026-08-28 00:45:36,913 - [INFO] - aiogram.event - Update id=287601446 is handled. Duration 328 ms by bot id=8380079376
+2026-08-28 00:45:40,386 - [INFO] - aiogram.event - Update id=287601447 is handled. Duration 77 ms by bot id=8380079376
+2026-08-28 00:45:44,256 - [INFO] - aiogram.event - Update id=287601448 is handled. Duration 77 ms by bot id=8380079376
+2026-08-28 00:45:46,037 - [INFO] - aiogram.event - Update id=287601449 is handled. Duration 140 ms by bot id=8380079376
+2026-08-28 00:45:48,835 - [INFO] - aiogram.event - Update id=287601450 is handled. Duration 125 ms by bot id=8380079376
+2026-08-28 00:45:53,386 - [INFO] - aiogram.event - Update id=287601451 is handled. Duration 61 ms by bot id=8380079376
+2026-08-28 00:46:01,431 - [INFO] - aiogram.event - Update id=287601452 is handled. Duration 234 ms by bot id=8380079376
+2026-08-28 00:46:07,068 - [INFO] - aiogram.event - Update id=287601453 is handled. Duration 125 ms by bot id=8380079376
+2026-08-28 00:46:23,727 - [INFO] - aiogram.event - Update id=287601454 is handled. Duration 125 ms by bot id=8380079376
+2026-08-28 00:46:41,573 - [INFO] - aiogram.event - Update id=287601455 is handled. Duration 94 ms by bot id=8380079376
+2026-08-28 00:47:06,537 - [INFO] - aiogram.event - Update id=287601456 is handled. Duration 109 ms by bot id=8380079376
+2026-08-28 00:47:20,089 - [INFO] - aiogram.event - Update id=287601457 is handled. Duration 109 ms by bot id=8380079376
+2026-08-28 00:47:34,325 - [INFO] - aiogram.dispatcher - Polling stopped
+2026-08-28 00:47:34,327 - [INFO] - aiogram.dispatcher - Polling stopped for bot @schedulebiobot id=8380079376 - 'Hueplet'
+2026-08-28 00:47:34,587 - [INFO] - root - Бот стоп
+2026-08-28 00:50:26,626 - [INFO] - root - Инициализация таблиц БД...
+2026-08-28 00:50:26,699 - [INFO] - root - Синхронизация актуальных данных с bio.bsu.by...
+2026-08-28 00:50:27,166 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-groups/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2 "HTTP/1.1 200 OK"
+2026-08-28 00:50:27,193 - [INFO] - root - Синхронизировано 13 групп (2 курс) в БД.
+2026-08-28 00:50:27,514 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-week-for-date/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2&date=2026-08-31 "HTTP/1.1 200 OK"
+2026-08-28 00:50:27,959 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-schedule/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2&week_id=66 "HTTP/1.1 200 OK"
+2026-08-28 00:50:28,121 - [INFO] - root - Успешно сохранено 102 записей расписания на неделю (week_id=66).
+2026-08-28 00:50:28,122 - [INFO] - root - База данных готова к работе
+2026-08-28 00:50:28,122 - [INFO] - root - Бот запущен
+2026-08-28 00:50:28,122 - [INFO] - aiogram.dispatcher - Start polling
+2026-08-28 00:50:28,412 - [INFO] - aiogram.dispatcher - Run polling for bot @schedulebiobot id=8380079376 - 'Hueplet'
+2026-08-28 00:50:37,300 - [INFO] - aiogram.event - Update id=287601458 is handled. Duration 203 ms by bot id=8380079376
+2026-08-28 00:50:39,340 - [INFO] - aiogram.event - Update id=287601459 is handled. Duration 0 ms by bot id=8380079376
+2026-08-28 00:50:46,362 - [INFO] - aiogram.event - Update id=287601460 is handled. Duration 0 ms by bot id=8380079376
+2026-08-28 00:50:47,998 - [INFO] - aiogram.event - Update id=287601461 is handled. Duration 0 ms by bot id=8380079376
+2026-08-28 00:51:03,084 - [INFO] - aiogram.event - Update id=287601462 is handled. Duration 561 ms by bot id=8380079376
+2026-08-28 00:51:35,847 - [INFO] - aiogram.dispatcher - Polling stopped
+2026-08-28 00:51:35,848 - [INFO] - aiogram.dispatcher - Polling stopped for bot @schedulebiobot id=8380079376 - 'Hueplet'
+2026-08-28 00:51:36,104 - [INFO] - root - Бот остановлен
+2026-08-28 00:52:50,843 - [INFO] - root - Инициализация таблиц БД...
+2026-08-28 00:52:50,914 - [INFO] - root - Синхронизация актуальных данных с bio.bsu.by...
+2026-08-28 00:52:51,312 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-groups/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2 "HTTP/1.1 200 OK"
+2026-08-28 00:52:51,343 - [INFO] - root - Синхронизировано 13 групп (2 курс) в БД.
+2026-08-28 00:52:51,733 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-week-for-date/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2&date=2026-08-31 "HTTP/1.1 200 OK"
+2026-08-28 00:52:52,144 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-schedule/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2&week_id=66 "HTTP/1.1 200 OK"
+2026-08-28 00:52:52,191 - [INFO] - root - Успешно сохранено 102 записей расписания на неделю (week_id=66).
+2026-08-28 00:52:52,192 - [INFO] - root - База данных готова к работе
+2026-08-28 00:52:52,192 - [INFO] - root - Бот запущен
+2026-08-28 00:52:52,193 - [INFO] - aiogram.dispatcher - Start polling
+2026-08-28 00:52:52,480 - [INFO] - aiogram.dispatcher - Run polling for bot @schedulebiobot id=8380079376 - 'Hueplet'
+2026-08-28 00:52:59,082 - [INFO] - aiogram.event - Update id=287601463 is handled. Duration 1140 ms by bot id=8380079376
+2026-08-28 00:53:04,688 - [INFO] - aiogram.event - Update id=287601464 is handled. Duration 109 ms by bot id=8380079376
+2026-08-28 00:53:12,111 - [INFO] - aiogram.event - Update id=287601465 is handled. Duration 657 ms by bot id=8380079376
+2026-08-28 00:53:14,477 - [INFO] - aiogram.event - Update id=287601466 is handled. Duration 125 ms by bot id=8380079376
+2026-08-28 00:53:17,272 - [INFO] - aiogram.event - Update id=287601467 is handled. Duration 141 ms by bot id=8380079376
+2026-08-28 00:53:37,031 - [INFO] - aiogram.event - Update id=287601468 is handled. Duration 188 ms by bot id=8380079376
+2026-08-28 00:53:37,983 - [INFO] - aiogram.event - Update id=287601469 is handled. Duration 219 ms by bot id=8380079376
+2026-08-28 00:53:39,854 - [INFO] - aiogram.event - Update id=287601470 is handled. Duration 94 ms by bot id=8380079376
+2026-08-28 00:53:41,822 - [INFO] - aiogram.event - Update id=287601471 is handled. Duration 0 ms by bot id=8380079376
+2026-08-28 00:53:50,098 - [INFO] - aiogram.event - Update id=287601472 is handled. Duration 0 ms by bot id=8380079376
+2026-08-28 00:53:51,786 - [INFO] - aiogram.event - Update id=287601473 is handled. Duration 0 ms by bot id=8380079376
+2026-08-28 00:54:25,051 - [INFO] - aiogram.dispatcher - Polling stopped
+2026-08-28 00:54:25,052 - [INFO] - aiogram.dispatcher - Polling stopped for bot @schedulebiobot id=8380079376 - 'Hueplet'
+2026-08-28 00:54:25,319 - [INFO] - root - Бот остановлен
+2026-08-28 00:59:36,447 - [INFO] - root - Инициализация таблиц БД...
+2026-08-28 00:59:36,514 - [INFO] - root - Синхронизация актуальных данных с bio.bsu.by...
+2026-08-28 00:59:36,965 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-groups/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2 "HTTP/1.1 200 OK"
+2026-08-28 00:59:36,989 - [INFO] - root - Синхронизировано 13 групп (2 курс) в БД.
+2026-08-28 00:59:37,413 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-week-for-date/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2&date=2026-08-31 "HTTP/1.1 200 OK"
+2026-08-28 00:59:37,785 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-schedule/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2&week_id=66 "HTTP/1.1 200 OK"
+2026-08-28 00:59:37,903 - [INFO] - root - Успешно сохранено 102 записей расписания на неделю (week_id=66).
+2026-08-28 00:59:37,904 - [INFO] - root - База данных готова к работе
+2026-08-28 00:59:37,904 - [INFO] - root - Бот запущен
+2026-08-28 00:59:37,904 - [INFO] - aiogram.dispatcher - Start polling
+2026-08-28 00:59:38,238 - [INFO] - aiogram.dispatcher - Run polling for bot @schedulebiobot id=8380079376 - 'Hueplet'
+2026-08-28 00:59:46,582 - [INFO] - aiogram.event - Update id=287601474 is handled. Duration 171 ms by bot id=8380079376
+2026-08-28 00:59:49,350 - [INFO] - aiogram.event - Update id=287601475 is handled. Duration 77 ms by bot id=8380079376
+2026-08-28 00:59:52,218 - [INFO] - aiogram.event - Update id=287601476 is handled. Duration 61 ms by bot id=8380079376
+2026-08-28 00:59:55,748 - [INFO] - aiogram.event - Update id=287601477 is handled. Duration 250 ms by bot id=8380079376
+2026-08-28 01:00:12,520 - [INFO] - aiogram.event - Update id=287601478 is handled. Duration 94 ms by bot id=8380079376
+2026-08-28 01:00:14,397 - [INFO] - aiogram.event - Update id=287601479 is handled. Duration 94 ms by bot id=8380079376
+2026-08-28 01:00:15,773 - [INFO] - aiogram.event - Update id=287601480 is handled. Duration 297 ms by bot id=8380079376
+2026-08-28 01:00:19,562 - [INFO] - aiogram.event - Update id=287601481 is handled. Duration 140 ms by bot id=8380079376
+2026-08-28 01:00:21,962 - [INFO] - aiogram.event - Update id=287601482 is handled. Duration 592 ms by bot id=8380079376
+2026-08-28 01:01:17,452 - [INFO] - aiogram.event - Update id=287601483 is handled. Duration 77 ms by bot id=8380079376
+2026-08-28 01:01:18,434 - [INFO] - aiogram.event - Update id=287601484 is handled. Duration 61 ms by bot id=8380079376
+2026-08-28 01:01:23,640 - [INFO] - aiogram.dispatcher - Polling stopped
+2026-08-28 01:01:23,641 - [INFO] - aiogram.dispatcher - Polling stopped for bot @schedulebiobot id=8380079376 - 'Hueplet'
+2026-08-28 01:01:23,902 - [INFO] - root - Бот остановлен
+2026-08-28 01:04:27,381 - [INFO] - root - Инициализация таблиц БД...
+2026-08-28 01:04:27,472 - [INFO] - root - Синхронизация актуальных данных с bio.bsu.by...
+2026-08-28 01:04:27,888 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-groups/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2 "HTTP/1.1 200 OK"
+2026-08-28 01:04:27,913 - [INFO] - root - Синхронизировано 13 групп (2 курс) в БД.
+2026-08-28 01:04:28,343 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-week-for-date/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2&date=2026-08-31 "HTTP/1.1 200 OK"
+2026-08-28 01:04:28,844 - [INFO] - httpx - HTTP Request: GET https://bio.bsu.by/schedule/api/get-schedule/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2&week_id=66 "HTTP/1.1 200 OK"
+2026-08-28 01:04:28,951 - [INFO] - root - Успешно сохранено 102 записей расписания на неделю (week_id=66).
+2026-08-28 01:04:28,952 - [INFO] - root - База данных готова к работе
+2026-08-28 01:04:28,952 - [INFO] - root - Бот запущен
+2026-08-28 01:04:28,952 - [INFO] - aiogram.dispatcher - Start polling
+2026-08-28 01:04:29,471 - [INFO] - aiogram.dispatcher - Run polling for bot @schedulebiobot id=8380079376 - 'Hueplet'
+2026-08-28 01:04:34,088 - [INFO] - aiogram.event - Update id=287601485 is handled. Duration 217 ms by bot id=8380079376
+2026-08-28 01:04:36,462 - [INFO] - aiogram.event - Update id=287601486 is handled. Duration 203 ms by bot id=8380079376
+2026-08-28 01:07:56,298 - [INFO] - aiogram.dispatcher - Polling stopped
+2026-08-28 01:07:56,299 - [INFO] - aiogram.dispatcher - Polling stopped for bot @schedulebiobot id=8380079376 - 'Hueplet'
+2026-08-28 01:07:56,552 - [INFO] - root - Бот остановлен
+2026-08-28 11:53:50,100 - [INFO] - BioBot - Инициализация таблиц БД...
+2026-08-28 11:53:50,289 - [INFO] - BioBot - Синхронизация данных...
+2026-08-28 11:53:50,899 - [INFO] - BioBot - Синхронизировано 13 групп (1 курс).
+2026-08-28 11:53:51,556 - [INFO] - BioBot - Сохранено 89 пар (1 курс, week_id=63).
+2026-08-28 11:53:52,552 - [INFO] - BioBot - Сохранено 360 пар (1 курс, week_id=64).
+2026-08-28 11:53:52,789 - [INFO] - BioBot - Синхронизировано 13 групп (2 курс).
+2026-08-28 11:53:53,487 - [INFO] - BioBot - Сохранено 102 пар (2 курс, week_id=66).
+2026-08-28 11:53:54,483 - [INFO] - BioBot - Сохранено 388 пар (2 курс, week_id=67).
+2026-08-28 11:53:54,854 - [INFO] - BioBot - Синхронизировано 13 групп (3 курс).
+2026-08-28 11:53:55,578 - [INFO] - BioBot - Сохранено 164 пар (3 курс, week_id=69).
+2026-08-28 11:53:56,502 - [INFO] - BioBot - Сохранено 439 пар (3 курс, week_id=70).
+2026-08-28 11:53:56,908 - [INFO] - BioBot - Синхронизировано 12 групп (4 курс).
+2026-08-28 11:53:57,536 - [INFO] - BioBot - Сохранено 27 пар (4 курс, week_id=74).
+2026-08-28 11:53:57,830 - [INFO] - BioBot - База данных готова
+2026-08-28 11:53:57,830 - [INFO] - BioBot - Бот запущен...
+2026-08-28 11:55:16,021 - [INFO] - BioBot - Бот остановлен
+2026-08-28 11:58:57,999 - [INFO] - BioBot - Инициализация таблиц БД...
+2026-08-28 11:58:58,159 - [INFO] - BioBot - Синхронизация данных...
+2026-08-28 11:58:58,576 - [INFO] - BioBot - Синхронизировано 13 групп (1 курс).
+2026-08-28 11:58:58,863 - [ERROR] - BioBot - Ошибка получения week_id для 2026-08-31: Client error '403 Forbidden' for url 'https://bio.bsu.by/schedule/api/get-week-for-date/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=1&date=2026-08-31'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403
+2026-08-28 11:58:59,085 - [ERROR] - BioBot - Ошибка получения week_id для 2026-09-07: Client error '403 Forbidden' for url 'https://bio.bsu.by/schedule/api/get-week-for-date/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=1&date=2026-09-07'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403
+2026-08-28 11:58:59,298 - [INFO] - BioBot - Синхронизировано 13 групп (2 курс).
+2026-08-28 11:58:59,502 - [ERROR] - BioBot - Ошибка получения week_id для 2026-08-31: Client error '403 Forbidden' for url 'https://bio.bsu.by/schedule/api/get-week-for-date/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2&date=2026-08-31'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403
+2026-08-28 11:58:59,909 - [ERROR] - BioBot - Ошибка получения week_id для 2026-09-07: Client error '403 Forbidden' for url 'https://bio.bsu.by/schedule/api/get-week-for-date/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=2&date=2026-09-07'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403
+2026-08-28 11:59:00,166 - [INFO] - BioBot - Синхронизировано 13 групп (3 курс).
+2026-08-28 11:59:00,592 - [ERROR] - BioBot - Ошибка получения week_id для 2026-08-31: Client error '403 Forbidden' for url 'https://bio.bsu.by/schedule/api/get-week-for-date/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=3&date=2026-08-31'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403
+2026-08-28 11:59:00,757 - [ERROR] - BioBot - Ошибка получения week_id для 2026-09-07: Client error '403 Forbidden' for url 'https://bio.bsu.by/schedule/api/get-week-for-date/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=3&date=2026-09-07'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403
+2026-08-28 11:59:01,297 - [INFO] - BioBot - Синхронизировано 12 групп (4 курс).
+2026-08-28 11:59:01,469 - [ERROR] - BioBot - Ошибка получения week_id для 2026-08-31: Client error '403 Forbidden' for url 'https://bio.bsu.by/schedule/api/get-week-for-date/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=4&date=2026-08-31'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403
+2026-08-28 11:59:01,718 - [ERROR] - BioBot - Ошибка получения week_id для 2026-09-07: Client error '403 Forbidden' for url 'https://bio.bsu.by/schedule/api/get-week-for-date/?study_mode=%D0%94%D0%BD%D0%B5%D0%B2%D0%BD%D0%B0%D1%8F&course=4&date=2026-09-07'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403
+2026-08-28 11:59:01,720 - [INFO] - BioBot - База данных готова
+2026-08-28 11:59:01,721 - [INFO] - BioBot - Бот запущен...
+2026-08-28 12:00:51,547 - [INFO] - BioBot - Бот остановлен
+2026-08-28 12:09:14,284 - [INFO] - BioBot - Инициализация таблиц БД...
+2026-08-28 12:09:14,436 - [INFO] - BioBot - Синхронизация данных...
+2026-08-28 12:09:14,811 - [ERROR] - BioBot - 403 Forbidden при запросе к https://bio.bsu.by/schedule/api/get-groups/. Ответ сервера: 
+<!doctype html>
+<html lang="en">
+<head>
+  <title>403 Forbidden</title>
+</head>
+<body>
+  <h1>403 Forbidden</h1><p></p>
+</body>
+</html>
+
+2026-08-28 12:09:15,172 - [ERROR] - BioBot - 403 Forbidden при запросе к https://bio.bsu.by/schedule/api/get-week-for-date/. Ответ сервера: 
+<!doctype html>
+<html lang="en">
+<head>
+  <title>403 Forbidden</title>
+</head>
+<body>
+  <h1>403 Forbidden</h1><p></p>
+</body>
+</html>
+
+2026-08-28 12:09:15,624 - [ERROR] - BioBot - 403 Forbidden при запросе к https://bio.bsu.by/schedule/api/get-week-for-date/. Ответ сервера: 
+<!doctype html>
+<html lang="en">
+<head>
+  <title>403 Forbidden</title>
+</head>
+<body>
+  <h1>403 Forbidden</h1><p></p>
+</body>
+</html>
+
+2026-08-28 12:09:16,008 - [ERROR] - BioBot - 403 Forbidden при запросе к https://bio.bsu.by/schedule/api/get-groups/. Ответ сервера: 
+<!doctype html>
+<html lang="en">
+<head>
+  <title>403 Forbidden</title>
+</head>
+<body>
+  <h1>403 Forbidden</h1><p></p>
+</body>
+</html>
+
+2026-08-28 12:09:16,392 - [ERROR] - BioBot - 403 Forbidden при запросе к https://bio.bsu.by/schedule/api/get-week-for-date/. Ответ сервера: 
+<!doctype html>
+<html lang="en">
+<head>
+  <title>403 Forbidden</title>
+</head>
+<body>
+  <h1>403 Forbidden</h1><p></p>
+</body>
+</html>
+
+2026-08-28 12:09:16,762 - [ERROR] - BioBot - 403 Forbidden при запросе к https://bio.bsu.by/schedule/api/get-week-for-date/. Ответ сервера: 
+<!doctype html>
+<html lang="en">
+<head>
+  <title>403 Forbidden</title>
+</head>
+<body>
+  <h1>403 Forbidden</h1><p></p>
+</body>
+</html>
+
+2026-08-28 12:09:17,240 - [ERROR] - BioBot - 403 Forbidden при запросе к https://bio.bsu.by/schedule/api/get-groups/. Ответ сервера: 
+<!doctype html>
+<html lang="en">
+<head>
+  <title>403 Forbidden</title>
+</head>
+<body>
+  <h1>403 Forbidden</h1><p></p>
+</body>
+</html>
+
+2026-08-28 12:09:17,607 - [ERROR] - BioBot - 403 Forbidden при запросе к https://bio.bsu.by/schedule/api/get-week-for-date/. Ответ сервера: 
+<!doctype html>
+<html lang="en">
+<head>
+  <title>403 Forbidden</title>
+</head>
+<body>
+  <h1>403 Forbidden</h1><p></p>
+</body>
+</html>
+
+2026-08-28 12:09:17,995 - [ERROR] - BioBot - 403 Forbidden при запросе к https://bio.bsu.by/schedule/api/get-week-for-date/. Ответ сервера: 
+<!doctype html>
+<html lang="en">
+<head>
+  <title>403 Forbidden</title>
+</head>
+<body>
+  <h1>403 Forbidden</h1><p></p>
+</body>
+</html>
+
+2026-08-28 12:09:18,369 - [ERROR] - BioBot - 403 Forbidden при запросе к https://bio.bsu.by/schedule/api/get-groups/. Ответ сервера: 
+<!doctype html>
+<html lang="en">
+<head>
+  <title>403 Forbidden</title>
+</head>
+<body>
+  <h1>403 Forbidden</h1><p></p>
+</body>
+</html>
+
+2026-08-28 12:09:18,728 - [ERROR] - BioBot - 403 Forbidden при запросе к https://bio.bsu.by/schedule/api/get-week-for-date/. Ответ сервера: 
+<!doctype html>
+<html lang="en">
+<head>
+  <title>403 Forbidden</title>
+</head>
+<body>
+  <h1>403 Forbidden</h1><p></p>
+</body>
+</html>
+
+2026-08-28 12:09:19,091 - [ERROR] - BioBot - 403 Forbidden при запросе к https://bio.bsu.by/schedule/api/get-week-for-date/. Ответ сервера: 
+<!doctype html>
+<html lang="en">
+<head>
+  <title>403 Forbidden</title>
+</head>
+<body>
+  <h1>403 Forbidden</h1><p></p>
+</body>
+</html>
+
+2026-08-28 12:09:19,406 - [INFO] - BioBot - База данных готова
+2026-08-28 12:09:19,407 - [INFO] - BioBot - Бот запущен...
+2026-08-28 18:25:21,923 - [INFO] - BioBot - Инициализация таблиц БД...
+2026-08-28 18:25:22,026 - [INFO] - BioBot - Синхронизация данных...
+2026-08-28 18:25:31,096 - [INFO] - BioBot - Бот остановлен
+2026-08-28 18:25:44,376 - [INFO] - BioBot - Инициализация таблиц БД...
+2026-08-28 18:25:44,438 - [INFO] - BioBot - Синхронизация данных...
+2026-08-28 18:25:44,878 - [INFO] - BioBot - Синхронизировано 13 групп (1 курс).
+2026-08-28 18:25:46,406 - [INFO] - BioBot - Сохранено 101 пар (1 курс, week_id=63).
+2026-08-28 18:25:46,803 - [INFO] - BioBot - Синхронизировано 13 групп (2 курс).
+2026-08-28 18:25:48,142 - [INFO] - BioBot - Сохранено 102 пар (2 курс, week_id=66).
+2026-08-28 18:25:48,520 - [INFO] - BioBot - Синхронизировано 14 групп (3 курс).
+2026-08-28 18:25:49,837 - [INFO] - BioBot - Сохранено 204 пар (3 курс, week_id=69).
+2026-08-28 18:25:50,206 - [INFO] - BioBot - Синхронизировано 14 групп (4 курс).
+2026-08-28 18:25:51,316 - [INFO] - BioBot - Сохранено 143 пар (4 курс, week_id=74).
+2026-08-28 18:25:51,620 - [INFO] - BioBot - База данных готова
+2026-08-28 18:25:51,620 - [INFO] - BioBot - Бот запущен...
+2026-08-28 18:33:05,338 - [INFO] - BioBot - Бот остановлен
+2026-08-28 18:38:32,072 - [INFO] - BioBot - Инициализация таблиц БД...
+2026-08-28 18:38:32,134 - [INFO] - BioBot - Синхронизация данных...
+2026-08-28 18:38:32,451 - [INFO] - BioBot - Синхронизировано 13 групп (1 курс).
+2026-08-28 18:38:34,175 - [INFO] - BioBot - Сохранено 101 пар (1 курс, week_id=63).
+2026-08-28 18:38:34,688 - [INFO] - BioBot - Синхронизировано 13 групп (2 курс).
+2026-08-28 18:38:36,062 - [INFO] - BioBot - Сохранено 102 пар (2 курс, week_id=66).
+2026-08-28 18:38:36,541 - [INFO] - BioBot - Синхронизировано 14 групп (3 курс).
+2026-08-28 18:38:38,055 - [INFO] - BioBot - Сохранено 204 пар (3 курс, week_id=69).
+2026-08-28 18:38:38,428 - [INFO] - BioBot - Синхронизировано 14 групп (4 курс).
+2026-08-28 18:38:39,394 - [INFO] - BioBot - Сохранено 143 пар (4 курс, week_id=74).
+2026-08-28 18:38:39,694 - [INFO] - BioBot - База данных готова
+2026-08-28 18:38:39,694 - [INFO] - BioBot - Бот запущен...
+2026-08-28 18:39:34,250 - [INFO] - BioBot - Бот остановлен
+2026-08-28 18:52:50,599 - [INFO] - BioBot - Инициализация таблиц БД...
+2026-08-28 18:52:50,684 - [INFO] - BioBot - Синхронизация данных по Минскому времени...
+2026-08-28 18:52:50,904 - [INFO] - BioBot - Синхронизировано 13 групп (1 курс).
+2026-08-28 18:52:51,944 - [INFO] - BioBot - Сохранено 101 пар (1 курс, week_id=63).
+2026-08-28 18:52:52,305 - [INFO] - BioBot - Синхронизировано 13 групп (2 курс).
+2026-08-28 18:52:53,554 - [INFO] - BioBot - Сохранено 102 пар (2 курс, week_id=66).
+2026-08-28 18:52:53,935 - [INFO] - BioBot - Синхронизировано 14 групп (3 курс).
+2026-08-28 18:52:54,921 - [INFO] - BioBot - Сохранено 204 пар (3 курс, week_id=69).
+2026-08-28 18:52:55,307 - [INFO] - BioBot - Синхронизировано 14 групп (4 курс).
+2026-08-28 18:52:56,869 - [INFO] - BioBot - Сохранено 143 пар (4 курс, week_id=74).
+2026-08-28 18:52:57,174 - [INFO] - BioBot - База данных готова
+2026-08-28 18:52:57,174 - [INFO] - BioBot - Бот запущен...
+2026-08-28 19:01:48,030 - [INFO] - BioBot - Бот остановлен
+2026-08-28 19:34:19,659 - [INFO] - BioBot - Инициализация таблиц БД...
+2026-08-28 19:34:19,719 - [INFO] - BioBot - Синхронизация данных...
+2026-08-28 19:34:29,537 - [INFO] - BioBot - Бот остановлен
+2026-08-28 19:35:33,636 - [INFO] - BioBot - Инициализация таблиц БД...
+2026-08-28 19:35:33,698 - [INFO] - BioBot - Синхронизация данных...
+2026-08-28 19:35:34,005 - [INFO] - BioBot - Синхронизировано 13 групп (1 курс).
+2026-08-28 19:35:35,098 - [INFO] - BioBot - Сохранено 101 пар (1 курс, week_id=63).
+2026-08-28 19:35:35,865 - [INFO] - BioBot - Сохранено 360 пар (1 курс, week_id=64).
+2026-08-28 19:35:36,246 - [INFO] - BioBot - Синхронизировано 13 групп (2 курс).
+2026-08-28 19:35:37,655 - [INFO] - BioBot - Сохранено 102 пар (2 курс, week_id=66).
+2026-08-28 19:35:39,235 - [INFO] - BioBot - Сохранено 388 пар (2 курс, week_id=67).
+2026-08-28 19:35:39,757 - [INFO] - BioBot - Синхронизировано 14 групп (3 курс).
+2026-08-28 19:35:40,851 - [INFO] - BioBot - Сохранено 204 пар (3 курс, week_id=69).
+2026-08-28 19:35:41,612 - [INFO] - BioBot - Сохранено 439 пар (3 курс, week_id=70).
+2026-08-28 19:35:42,005 - [INFO] - BioBot - Синхронизировано 14 групп (4 курс).
+2026-08-28 19:35:43,001 - [INFO] - BioBot - Сохранено 143 пар (4 курс, week_id=74).
+2026-08-28 19:35:43,729 - [INFO] - BioBot - База данных готова
+2026-08-28 19:35:43,730 - [INFO] - BioBot - 🌐 Сервер заглушка запущен на порту 7860
+2026-08-28 19:35:43,730 - [INFO] - BioBot - Бот запущен...
+2026-08-28 19:38:22,606 - [INFO] - BioBot - Бот остановлен
+2026-08-28 20:02:20,535 - [INFO] - BioBot - Инициализация таблиц БД...
+2026-08-28 20:02:20,600 - [INFO] - BioBot - Синхронизация данных...
+2026-08-28 20:02:20,811 - [INFO] - BioBot - Синхронизировано 13 групп (1 курс).
+2026-08-28 20:02:22,746 - [INFO] - BioBot - Сохранено 101 пар (1 курс, week_id=63).
+2026-08-28 20:02:23,882 - [INFO] - BioBot - Сохранено 360 пар (1 курс, week_id=64).
+2026-08-28 20:02:24,362 - [INFO] - BioBot - Синхронизировано 13 групп (2 курс).
+2026-08-28 20:02:26,295 - [INFO] - BioBot - Сохранено 102 пар (2 курс, week_id=66).
+2026-08-28 20:02:27,566 - [INFO] - BioBot - Сохранено 388 пар (2 курс, week_id=67).
+2026-08-28 20:02:27,946 - [INFO] - BioBot - Синхронизировано 14 групп (3 курс).
+2026-08-28 20:02:30,146 - [INFO] - BioBot - Сохранено 204 пар (3 курс, week_id=69).
+2026-08-28 20:02:31,092 - [INFO] - BioBot - Сохранено 439 пар (3 курс, week_id=70).
+2026-08-28 20:02:31,877 - [INFO] - BioBot - Синхронизировано 14 групп (4 курс).
+2026-08-28 20:02:32,991 - [INFO] - BioBot - Сохранено 143 пар (4 курс, week_id=74).
+2026-08-28 20:02:33,707 - [INFO] - BioBot - База данных готова
+2026-08-28 20:02:33,708 - [INFO] - BioBot - 🌐 Сервер заглушка запущен на порту 7860
+2026-08-28 20:02:33,708 - [INFO] - BioBot - Бот запущен...
+2026-08-28 20:05:47,954 - [INFO] - BioBot - Бот остановлен
