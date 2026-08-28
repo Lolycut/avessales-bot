@@ -4,6 +4,7 @@ from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+import os
 
 from config import BOT_TOKEN, logger, get_minsk_now
 from database import init_db, async_session_maker
@@ -20,9 +21,11 @@ async def start_dummy_webserver():
     app.router.add_get("/health", handle_ping)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", 7860)
+    
+    port = int(os.getenv("PORT", 7860))
+    site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    logger.info("🌐 Сервер заглушка запущен на порту 7860")
+    logger.info(f"🌐 Web-сервер заглушка запущен на порту {port}")
 
 async def schedule_auto_sync_task():
     while True:
