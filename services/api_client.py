@@ -16,7 +16,6 @@ LESSON_TYPES_MAP = {
     "other": "ДР"
 }
 
-# Глобальный статус синхронизации для команды /stats
 LAST_SYNC_INFO: Dict[str, Any] = {
     "timestamp": None,
     "success": True,
@@ -26,7 +25,6 @@ LAST_SYNC_INFO: Dict[str, Any] = {
 
 
 def get_current_date() -> date:
-    """Возвращает текущую дату по Минскому времени (UTC+3)."""
     minsk_tz = timezone(timedelta(hours=3))
     return datetime.now(minsk_tz).date()
 
@@ -227,12 +225,12 @@ async def sync_all_courses(session: AsyncSession, target_date: Optional[date] = 
             logger.error(f"Ошибка синхронизации курса {c}: {e}")
 
     now_str = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-    LAST_SYNC_INFO = {
-        "timestamp": now_str,
-        "success": True,
-        "errors": [],
-        "total_lessons_saved": total_lessons
-    }
+    LAST_SYNC_INFO.update({
+    "timestamp": now_str,
+    "success": True,
+    "errors": [],
+    "total_lessons_saved": total_lessons
+    }) 
 
     logger.info(f"Синхронизация завершена в {now_str}. Всего сохранено пар: {total_lessons}")
     return LAST_SYNC_INFO
