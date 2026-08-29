@@ -1,5 +1,6 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
@@ -13,6 +14,40 @@ router = Router()
 
 class SettingsFSM(StatesGroup):
     changing_nickname = State()
+
+
+FAQ_TEXT = (
+    "📖 <b>Справка и возможности бота</b>\n\n"
+    "<b>📱 Кнопки главного меню:</b>\n"
+    "• <b>📅 Сегодня / 📆 Завтра</b> — расписание вашей группы на выбранный день в виде таблицы\n"
+    "• <b>⚡ Какая пара сейчас?</b> — активная пара в данный момент или ближайшая следующая. Показывает аудиторию, преподавателя и метку <code>⚠️ ВЫЕЗД!</code>, если корпус не на Курчатова 10\n"
+    "• <b>🗓 На неделю</b> — расписание на всю неделю с кнопками переключения <code>◀️ Пред.</code> и <code>След. ▶️</code>\n"
+    "• <b>🔔 Уведы</b> — включает/выключает утреннюю рассылку пар в <b>07:45</b> по Минску\n"
+    "• <b>⚙️ Настройки</b> — смена подгруппы, имени или повторный выбор группы.\n\n"
+    "<b>💬 Поиск на естественном языке (текстом):</b>\n"
+    "Вы можете писать боту запросы обычной речью, даже с опечатками:\n"
+    "• <i>«что во вторник?»</i>, <i>«пары в четверг»</i>, <i>«расписание на сб»</i>\n"
+    "• <i>«какая 2 пара во вторник?»</i>, <i>«3 пара завтра»</i>\n"
+    "• <i>«след неделя»</i>, <i>«в следующий понедельник»</i>\n\n"
+    "<b>🔍 Поиск расписания ДРУГИХ групп:</b>\n"
+    "Используйте формат <code>КУРС-ГРУППА</code>:\n"
+    "• <i>«Что у 1-41 в чт?»</i> — расписание 41 группы 1 курса на четверг\n"
+    "• <i>«2-42 на завтра»</i> — расписание 2 группы 2 курса на завтра\n"
+    "• <i>«1-41 на неделю»</i> — недельное расписание чужой группы\n"
+    "• <i>«Какая 1 пара у 3-41 в пятницу»</i> — конкретная пара чужой группы"
+)
+
+
+@router.message(Command("help"))
+@router.message(Command("faq"))
+async def cmd_faq(message: Message):
+    await message.answer(FAQ_TEXT)
+
+
+@router.callback_query(F.data == "show_faq")
+async def callback_show_faq(callback: CallbackQuery):
+    await callback.message.answer(FAQ_TEXT)
+    await callback.answer()
 
 
 @router.message(F.text.contains("Уведы"))
@@ -43,10 +78,12 @@ async def open_settings(message: Message, state: FSMContext):
             return
         group = await session.get(Group, user.group_id) if user.group_id else None
         group_name = group.name if group else "Не выбрана"
+        course_str = f"{group.course} курс" if group else "—"
 
     text = (
         f"⚙️ <b>Личный кабинет и настройки</b>\n\n"
         f"👤 Ваше имя: <b>{user.first_name}</b>\n"
+        f"🎓 Курс: <b>{course_str}</b>\n"
         f"👥 Группа: <b>{group.number if group else '—'} ({group_name})</b>\n"
         f"🔢 Подгруппа: <b>{user.subgroup or 'Вся группа'}</b>\n"
         f"🔔 Уведомления: <b>{'Включены' if user.notifications_enabled else 'Выключены'}</b>\n\n"
