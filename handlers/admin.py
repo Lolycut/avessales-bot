@@ -34,7 +34,7 @@ def is_admin(user_id: Optional[int]) -> bool:
 @router.message(Command("ahelp"))
 async def cmd_admin_help(message: Message):
     text = (
-        "👑 <b>Панель администратора BioBot</b>\n\n"
+        "👑 <b>Панель администратора AvesSales</b>\n\n"
         "• <code>/stats</code> — статистика пользователей и базы\n"
         "• <code>/sync</code> — принудительная синхронизация с bio.bsu.by\n"
         "• <code>/tech Текст</code> — рассылка оповещения студентам\n"
