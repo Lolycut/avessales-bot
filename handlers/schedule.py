@@ -1,14 +1,17 @@
 from datetime import date, timedelta, datetime
+from typing import Optional, List, Dict, Any
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, distinct
 
 from database import async_session_maker
 from models import User, Group, Lesson, Week
 from services.formatter import (
     build_native_rich_schedule, 
     format_full_week_rich_message, 
+    format_teacher_rich_schedule,
     TIMESLOTS, 
     DAYS_NAMES
 )
@@ -70,6 +73,106 @@ async def send_week_schedule(user_name: str, group: Group, target_subgroup: int,
     )
 
 
+async def try_find_teacher_schedule(query_text: str, target_date: date) -> Optional[tuple[str, date, List[Dict[str, Any]]]]:
+    clean = query_text.replace("где", "").replace("препод", "").replace("преподаватель", "").replace("пары", "").replace("расписание", "").strip()
+    words = clean.split()
+    if not words:
+        return None
+
+    monday = target_date - timedelta(days=target_date.weekday())
+
+    async with async_session_maker() as session:
+        matched_teacher = None
+        for word in words:
+            if len(word) < 3:
+                continue
+            res = await session.execute(
+                select(Lesson.teacher).where(Lesson.teacher.ilike(f"%{word}%")).limit(1)
+            )
+            matched = res.scalar()
+            if matched:
+                matched_teacher = matched
+                break
+
+        if not matched_teacher:
+            return None
+
+        stmt = (
+            select(Lesson, Group)
+            .join(Group, Lesson.group_id == Group.id)
+            .join(Week, Lesson.week_id == Week.id)
+            .where(
+                Lesson.teacher == matched_teacher,
+                Week.start_date == monday
+            )
+        )
+        res = await session.execute(stmt)
+        rows = res.all()
+
+        if not rows:
+            latest_week = await session.scalar(select(Week.start_date).order_by(Week.id.desc()).limit(1))
+            if latest_week:
+                monday = latest_week
+                stmt = (
+                    select(Lesson, Group)
+                    .join(Group, Lesson.group_id == Group.id)
+                    .join(Week, Lesson.week_id == Week.id)
+                    .where(
+                        Lesson.teacher == matched_teacher,
+                        Week.start_date == monday
+                    )
+                )
+                res = await session.execute(stmt)
+                rows = res.all()
+
+        grouped_slots: Dict[tuple, Dict[str, Any]] = {}
+        for lesson, group in rows:
+            key = (lesson.day, lesson.slot_id, lesson.subject, lesson.lesson_type, lesson.room)
+            if key not in grouped_slots:
+                grouped_slots[key] = {
+                    "day": lesson.day,
+                    "slot_id": lesson.slot_id,
+                    "subject": lesson.subject,
+                    "lesson_type": lesson.lesson_type,
+                    "room": lesson.room,
+                    "address": lesson.address,
+                    "subgroup": lesson.subgroup,
+                    "groups": [f"{group.course}-{group.number}"]
+                }
+            else:
+                g_tag = f"{group.course}-{group.number}"
+                if g_tag not in grouped_slots[key]["groups"]:
+                    grouped_slots[key]["groups"].append(g_tag)
+
+        lessons_list = []
+        for item in grouped_slots.values():
+            item["groups_display"] = ", ".join(item["groups"])
+            lessons_list.append(item)
+
+        return matched_teacher, monday, lessons_list
+
+
+@router.message(Command("teachers"))
+@router.message(Command("prep"))
+async def cmd_list_teachers(message: Message):
+    async with async_session_maker() as session:
+        res = await session.execute(
+            select(distinct(Lesson.teacher)).where(Lesson.teacher.is_not(None)).order_by(Lesson.teacher)
+        )
+        teachers = res.scalars().all()
+
+    if not teachers:
+        await message.answer("Преподаватели пока не синхронизированы в базе")
+        return
+
+    text = "👨‍🏫 <b>Преподаватели факультета в базе:</b>\n\n"
+    for t in teachers[:40]:
+        text += f"• <code>{t}</code>\n"
+    
+    text += "\n💡 <i>Чтобы посмотреть расписание преподавателя, просто напишите его фамилию в чат (например: <b>Кукулянская</b> или <b>Где Рудакевич?</b>)</i>"
+    await message.answer(text)
+
+
 @router.callback_query(F.data.startswith("week_date_"))
 async def callback_switch_week_by_date(callback: CallbackQuery, bot: Bot):
     date_str = callback.data.replace("week_date_", "")
@@ -102,13 +205,23 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
     await state.clear()
     parsed = parse_schedule_query(message.text)
 
+    teacher_match = await try_find_teacher_schedule(message.text, parsed["date"])
+    if teacher_match:
+        teacher_name, monday, lessons_data = teacher_match
+        rich_msg = format_teacher_rich_schedule(
+            teacher_full_name=teacher_name,
+            start_monday=monday,
+            lessons_data=lessons_data
+        )
+        await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg)
+        return
+
     async with async_session_maker() as session:
         user = await session.get(User, message.from_user.id)
         if not user or not user.group_id:
             await message.answer("Сначала пройдите регистрацию: /start")
             return
 
-        # Определяем, какую группу показывать: свою или чужую
         if parsed.get("target_group"):
             t_course = parsed["target_group"]["course"]
             t_num = parsed["target_group"]["group_number"]
@@ -123,12 +236,11 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
                 await message.answer(f"⚠️ Группа <b>{t_num}</b> ({t_course} курс) не найдена в базе!")
                 return
             group = target_group
-            target_subgroup = 0  # Для чужой группы показываем всю группу
+            target_subgroup = 0
         else:
             group = await session.get(Group, user.group_id)
             target_subgroup = user.subgroup or 0
 
-    # 1. Запрос на неделю
     if parsed["type"] == "week":
         await send_week_schedule(
             user_name=user.first_name,
@@ -146,7 +258,6 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
     day_name = DAYS_NAMES[parsed["day_index"]]
     formatted_date = parsed["date"].strftime("%d.%m")
 
-    # 2. Запрос конкретного слота или текущей пары
     if parsed["type"] in ("slot", "current"):
         slot_id = get_active_slot_id() if parsed["type"] == "current" else parsed["slot_id"]
         matched = [
@@ -177,7 +288,6 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         await message.answer(text)
         return
 
-    # 3. Таблица на один день
     rich_msg = build_native_rich_schedule(
         user_name=user.first_name,
         group_name=group.name,
