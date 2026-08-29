@@ -4,10 +4,9 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from sqlalchemy import select, or_, distinct
+from aiogram.exceptions import TelegramBadRequest
 
 from database import async_session_maker
-from models import User, Group, Lesson, Week
 from services.formatter import (
     build_native_rich_schedule, 
     format_full_week_rich_message, 
@@ -16,8 +15,17 @@ from services.formatter import (
     DAYS_NAMES
 )
 from services.query_parser import parse_schedule_query
+from services.cache import (
+    get_cached_user, 
+    get_cached_group, 
+    GroupDTO,
+    LessonDTO,
+    LESSONS_CACHE, 
+    GROUPS_CACHE,
+    TEACHERS_CACHE
+)
 from keyboards import week_nav_kb
-from config import get_minsk_now
+from config import get_minsk_now, logger
 
 router = Router()
 
@@ -32,33 +40,22 @@ def get_active_slot_id() -> int:
     return 1
 
 
-async def fetch_lessons_for_target(session, group_id: int, course: int, target_date: date):
+def fetch_lessons_from_cache(group_id: int, target_date: date) -> tuple[date, List[LessonDTO]]:
     monday = target_date - timedelta(days=target_date.weekday())
-    week_res = await session.execute(
-        select(Week).where(Week.start_date == monday, Week.course == course)
-    )
-    week_obj = week_res.scalar()
-    
-    if not week_obj:
-        fallback_res = await session.execute(
-            select(Week).where(Week.course == course).order_by(Week.id.desc()).limit(1)
-        )
-        week_obj = fallback_res.scalar()
+    lessons = LESSONS_CACHE.get((group_id, monday))
+    if lessons is not None:
+        return monday, lessons
 
-    if not week_obj:
-        return monday, []
+    available_mondays = [m for (g_id, m) in LESSONS_CACHE.keys() if g_id == group_id]
+    if available_mondays:
+        latest_monday = max(available_mondays)
+        return latest_monday, LESSONS_CACHE.get((group_id, latest_monday), [])
 
-    lessons_res = await session.execute(
-        select(Lesson).where(Lesson.group_id == group_id, Lesson.week_id == week_obj.id)
-    )
-    return monday, lessons_res.scalars().all()
+    return monday, []
 
 
-async def send_week_schedule(user_name: str, group: Group, target_subgroup: int, target_date: date, chat_id: int, bot: Bot):
-    monday = target_date - timedelta(days=target_date.weekday())
-    async with async_session_maker() as session:
-        monday, lessons = await fetch_lessons_for_target(session, group.id, group.course, monday)
-
+async def send_week_schedule(user_name: str, group: GroupDTO, target_subgroup: int, target_date: date, chat_id: int, bot: Bot):
+    monday, lessons = fetch_lessons_from_cache(group.id, target_date)
     rich_msg = format_full_week_rich_message(
         user_name=user_name,
         group_name=group.name,
@@ -74,127 +71,121 @@ async def send_week_schedule(user_name: str, group: Group, target_subgroup: int,
 
 
 async def try_find_teacher_schedule(query_text: str, target_date: date) -> Optional[tuple[str, date, List[Dict[str, Any]]]]:
-    clean = query_text.replace("где", "").replace("препод", "").replace("преподаватель", "").replace("пары", "").replace("расписание", "").strip()
+    clean = query_text.replace("где", "").replace("препод", "").replace("преподаватель", "").replace("пары", "").replace("расписание", "").strip().lower()
     words = clean.split()
     if not words:
         return None
 
+    matched_teacher = None
+    for word in words:
+        if len(word) < 3:
+            continue
+        for t in TEACHERS_CACHE:
+            if word in t.lower():
+                matched_teacher = t
+                break
+        if matched_teacher:
+            break
+
+    if not matched_teacher:
+        return None
+
     monday = target_date - timedelta(days=target_date.weekday())
 
-    async with async_session_maker() as session:
-        matched_teacher = None
-        for word in words:
-            if len(word) < 3:
-                continue
-            res = await session.execute(
-                select(Lesson.teacher).where(Lesson.teacher.ilike(f"%{word}%")).limit(1)
-            )
-            matched = res.scalar()
-            if matched:
-                matched_teacher = matched
-                break
+    matched_lessons = []
+    for (g_id, m_date), l_list in LESSONS_CACHE.items():
+        if m_date == monday:
+            group = GROUPS_CACHE.get(g_id)
+            for l in l_list:
+                if l.teacher == matched_teacher:
+                    matched_lessons.append((l, group))
 
-        if not matched_teacher:
-            return None
+    grouped_slots: Dict[tuple, Dict[str, Any]] = {}
+    for lesson, group in matched_lessons:
+        g_tag = f"{group.course}-{group.number}" if group else "?"
+        key = (lesson.day, lesson.slot_id, lesson.subject, lesson.lesson_type, lesson.room)
+        if key not in grouped_slots:
+            grouped_slots[key] = {
+                "day": lesson.day,
+                "slot_id": lesson.slot_id,
+                "subject": lesson.subject,
+                "lesson_type": lesson.lesson_type,
+                "room": lesson.room,
+                "address": lesson.address,
+                "subgroup": lesson.subgroup,
+                "groups": [g_tag]
+            }
+        else:
+            if g_tag not in grouped_slots[key]["groups"]:
+                grouped_slots[key]["groups"].append(g_tag)
 
-        stmt = (
-            select(Lesson, Group)
-            .join(Group, Lesson.group_id == Group.id)
-            .join(Week, Lesson.week_id == Week.id)
-            .where(
-                Lesson.teacher == matched_teacher,
-                Week.start_date == monday
-            )
-        )
-        res = await session.execute(stmt)
-        rows = res.all()
+    lessons_list = []
+    for item in grouped_slots.values():
+        item["groups_display"] = ", ".join(item["groups"])
+        lessons_list.append(item)
 
-        if not rows:
-            latest_week = await session.scalar(select(Week.start_date).order_by(Week.id.desc()).limit(1))
-            if latest_week:
-                monday = latest_week
-                stmt = (
-                    select(Lesson, Group)
-                    .join(Group, Lesson.group_id == Group.id)
-                    .join(Week, Lesson.week_id == Week.id)
-                    .where(
-                        Lesson.teacher == matched_teacher,
-                        Week.start_date == monday
-                    )
-                )
-                res = await session.execute(stmt)
-                rows = res.all()
-
-        grouped_slots: Dict[tuple, Dict[str, Any]] = {}
-        for lesson, group in rows:
-            key = (lesson.day, lesson.slot_id, lesson.subject, lesson.lesson_type, lesson.room)
-            if key not in grouped_slots:
-                grouped_slots[key] = {
-                    "day": lesson.day,
-                    "slot_id": lesson.slot_id,
-                    "subject": lesson.subject,
-                    "lesson_type": lesson.lesson_type,
-                    "room": lesson.room,
-                    "address": lesson.address,
-                    "subgroup": lesson.subgroup,
-                    "groups": [f"{group.course}-{group.number}"]
-                }
-            else:
-                g_tag = f"{group.course}-{group.number}"
-                if g_tag not in grouped_slots[key]["groups"]:
-                    grouped_slots[key]["groups"].append(g_tag)
-
-        lessons_list = []
-        for item in grouped_slots.values():
-            item["groups_display"] = ", ".join(item["groups"])
-            lessons_list.append(item)
-
-        return matched_teacher, monday, lessons_list
+    return matched_teacher, monday, lessons_list
 
 
 @router.message(Command("teachers"))
 @router.message(Command("prep"))
 async def cmd_list_teachers(message: Message):
-    async with async_session_maker() as session:
-        res = await session.execute(
-            select(distinct(Lesson.teacher)).where(Lesson.teacher.is_not(None)).order_by(Lesson.teacher)
-        )
-        teachers = res.scalars().all()
-
-    if not teachers:
+    if not TEACHERS_CACHE:
         await message.answer("Преподаватели пока не синхронизированы в базе")
         return
 
     text = "👨‍🏫 <b>Преподаватели факультета в базе:</b>\n\n"
-    for t in teachers[:40]:
+    for t in TEACHERS_CACHE[:40]:
         text += f"• <code>{t}</code>\n"
     
-    text += "\n💡 <i>Чтобы посмотреть расписание преподавателя, просто напишите его фамилию в чат (например: <b>Кукулянская</b> или <b>Где Рудакевич?</b>)</i>"
+    text += "\n💡 <i>Чтобы посмотреть расписание преподавателя, напишите его фамилию (например: <b>Кукулянская</b>)</i>"
     await message.answer(text)
 
 
 @router.callback_query(F.data.startswith("week_date_"))
 async def callback_switch_week_by_date(callback: CallbackQuery, bot: Bot):
+    try:
+        await callback.answer()
+    except TelegramBadRequest:
+        pass
+
     date_str = callback.data.replace("week_date_", "")
-    target_monday = datetime.strptime(date_str, "%Y-%m-%d").date()
+    try:
+        target_monday = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return
 
     async with async_session_maker() as session:
-        user = await session.get(User, callback.from_user.id)
+        user = await get_cached_user(session, callback.from_user.id)
         if not user or not user.group_id:
-            await callback.answer("Сначала зарегистрируйтесь!")
+            try:
+                await callback.answer("Сначала зарегистрируйтесь!", show_alert=True)
+            except TelegramBadRequest:
+                pass
             return
-        group = await session.get(Group, user.group_id)
+        group = await get_cached_group(session, user.group_id)
 
-    await callback.message.delete()
-    await send_week_schedule(
-        user_name=user.first_name,
-        group=group,
-        target_subgroup=user.subgroup or 0,
-        target_date=target_monday,
-        chat_id=callback.message.chat.id,
-        bot=bot
-    )
-    await callback.answer()
+    if not group:
+        return
+
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        return
+    except Exception as e:
+        logger.warning(f"Не удалось удалить сообщение при смене недели: {e}")
+
+    try:
+        await send_week_schedule(
+            user_name=user.first_name,
+            group=group,
+            target_subgroup=user.subgroup or 0,
+            target_date=target_monday,
+            chat_id=callback.message.chat.id,
+            bot=bot
+        )
+    except Exception as e:
+        logger.error(f"Ошибка отправки недельного расписания: {e}")
 
 
 @router.message(F.text)
@@ -217,7 +208,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         return
 
     async with async_session_maker() as session:
-        user = await session.get(User, message.from_user.id)
+        user = await get_cached_user(session, message.from_user.id)
         if not user or not user.group_id:
             await message.answer("Сначала пройдите регистрацию: /start")
             return
@@ -225,22 +216,24 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         if parsed.get("target_group"):
             t_course = parsed["target_group"]["course"]
             t_num = parsed["target_group"]["group_number"]
-            g_res = await session.execute(
-                select(Group).where(
-                    Group.course == t_course,
-                    or_(Group.number == t_num, Group.number.ilike(f"%{t_num}%"))
-                )
+            target_group = next(
+                (g for g in GROUPS_CACHE.values() if g.course == t_course and (g.number == t_num or t_num in g.number)),
+                None
             )
-            target_group = g_res.scalar()
             if not target_group:
                 await message.answer(f"⚠️ Группа <b>{t_num}</b> ({t_course} курс) не найдена в базе!")
                 return
             group = target_group
             target_subgroup = 0
         else:
-            group = await session.get(Group, user.group_id)
+            group = await get_cached_group(session, user.group_id)
             target_subgroup = user.subgroup or 0
 
+    if not group:
+        await message.answer("⚠️ Ваша группа не найдена. Попробуйте перерегистрироваться через /start")
+        return
+
+    # 3. Расписание на неделю
     if parsed["type"] == "week":
         await send_week_schedule(
             user_name=user.first_name,
@@ -252,9 +245,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         )
         return
 
-    async with async_session_maker() as session:
-        monday, lessons = await fetch_lessons_for_target(session, group.id, group.course, parsed["date"])
-
+    monday, lessons = fetch_lessons_from_cache(group.id, parsed["date"])
     day_name = DAYS_NAMES[parsed["day_index"]]
     formatted_date = parsed["date"].strftime("%d.%m")
 
@@ -297,7 +288,4 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         lessons=lessons
     )
 
-    await bot.send_rich_message(
-        chat_id=message.chat.id,
-        rich_message=rich_msg
-    )
+    await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg)

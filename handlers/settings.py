@@ -3,11 +3,13 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+import html
 
 from database import async_session_maker
-from models import User, Group
+from models import User
 from keyboards import main_menu_kb, settings_inline_kb, settings_subgroups_kb, courses_kb
 from handlers.start import RegistrationFSM
+from services.cache import get_cached_user, get_cached_group, invalidate_user_cache
 
 router = Router()
 
@@ -65,6 +67,8 @@ async def toggle_notifications(message: Message, state: FSMContext):
         new_status = user.notifications_enabled
         await session.commit()
 
+        invalidate_user_cache(message.from_user.id)
+
     status_text = "включены 🔔" if new_status else "выключены 🔕"
     await message.answer(
         f"Уведомления успешно <b>{status_text}</b>!", 
@@ -76,19 +80,22 @@ async def toggle_notifications(message: Message, state: FSMContext):
 async def open_settings(message: Message, state: FSMContext):
     await state.clear()
     async with async_session_maker() as session:
-        user = await session.get(User, message.from_user.id)
+        user = await get_cached_user(session, message.from_user.id)
         if not user:
             await message.answer("Сначала пройдите регистрацию: /start")
             return
-        group = await session.get(Group, user.group_id) if user.group_id else None
+        group = await get_cached_group(session, user.group_id) if user.group_id else None
         group_name = group.name if group else "Не выбрана"
         course_str = f"{group.course} курс" if group else "—"
 
+    safe_name = html.escape(user.first_name or "Студент")
+    safe_group = html.escape(group_name)
+
     text = (
         f"⚙️ <b>Личный кабинет и настройки</b>\n\n"
-        f"👤 Ваше имя: <b>{user.first_name}</b>\n"
+        f"👤 Ваше имя: <b>{safe_name}</b>\n"
         f"🎓 Курс: <b>{course_str}</b>\n"
-        f"👥 Группа: <b>{group.number if group else '—'} ({group_name})</b>\n"
+        f"👥 Группа: <b>{group.number if group else '—'} ({safe_group})</b>\n"
         f"🔢 Подгруппа: <b>{user.subgroup or 'Вся группа'}</b>\n"
         f"🔔 Уведомления: <b>{'Включены' if user.notifications_enabled else 'Выключены'}</b>\n\n"
         f"Что хотите изменить?"
@@ -110,6 +117,8 @@ async def callback_save_subgroup(callback: CallbackQuery):
         if user:
             user.subgroup = subgroup_val if subgroup_val != 0 else None
             await session.commit()
+
+            invalidate_user_cache(callback.from_user.id)
     
     sub_title = f"{subgroup_val}-я подгруппа" if subgroup_val != 0 else "Вся группа"
     await callback.message.edit_text(f"✅ Подгруппа успешно изменена на: <b>{sub_title}</b>!")
@@ -135,13 +144,14 @@ async def process_new_nickname(message: Message, state: FSMContext):
         if user:
             user.first_name = new_name
             await session.commit()
+            invalidate_user_cache(message.from_user.id)
 
     await state.clear()
+    safe_name = html.escape(new_name)
     await message.answer(
-        f"✅ Имя успешно изменено на: <b>{new_name}</b>!",
+        f"✅ Имя успешно изменено на: <b>{safe_name}</b>!",
         reply_markup=main_menu_kb(user.notifications_enabled if user else True)
     )
-
 
 @router.callback_query(F.data == "restart_reg")
 async def callback_restart_registration(callback: CallbackQuery, state: FSMContext):
