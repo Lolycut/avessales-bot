@@ -6,7 +6,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from config import BOT_TOKEN, logger, get_minsk_now
-from database import init_db, async_session_maker
+from database import async_session_maker
 from services.api_client import sync_all_courses, api_client
 from services.cache import warm_up_schedule_cache
 from services.notifications import morning_notifications_loop
@@ -14,7 +14,7 @@ from handlers import start, settings, schedule, admin
 
 
 async def handle_ping(request):
-    return web.Response(text="OK! Bot is good")
+    return web.Response(text="OK! Bot is healthy")
 
 
 async def start_dummy_webserver():
@@ -46,16 +46,13 @@ async def schedule_auto_sync_task(bot: Bot):
 
 
 async def on_startup(bot: Bot):
-    logger.info("🛠 Инициализация таблиц БД...")
-    await init_db()
-    
     logger.info("🔄 Первичная синхронизация данных с bio.bsu.by...")
     async with async_session_maker() as session:
         await sync_all_courses(session, target_date=get_minsk_now().date(), bot=bot)
         logger.info("⚡ Прогрев оперативного RAM-кэша...")
         await warm_up_schedule_cache(session)
         
-    logger.info("🚀 База данных и RAM-кэш полностью готовы к работе!")
+    logger.info("🚀 Бот и RAM-кэш полностью готовы к работе!")
 
 
 async def main():
