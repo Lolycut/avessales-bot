@@ -19,8 +19,6 @@
    - [Поиск на естественном языке](#поиск-на-естественном-языке)
    - [Поиск чужих групп и преподавателей](#поиск-чужих-групп-и-преподавателей)
    - [Команды администратора](#команды-администратора)
-9. [🔄 Фоновые процессы и автоматизация](#-фоновые-процессы-и-автоматизация)
-10. [🛡 Обработка ошибок и логирование](#-обработка-ошибок-и-логирование)
 
 ---
 
@@ -121,8 +119,8 @@
 
 1. **Клонируйте репозиторий:**
    ```bash
-   git clone https://github.com/your-username/bio-schedule-bot.git
-   cd bio-schedule-bot
+   git clone https://github.com/Lolycut/avessales-bot.git
+   cd avessales-bot
    ```
 
 2. **Создайте и активируйте виртуальное окружение:**
@@ -314,8 +312,8 @@ CMD ["python", "main.py"]
 3. Заполните поля:
    - **Monitor Type:** выберите `HTTP(s)`.
    - **Friendly Name:** `Bio Bot Health`.
-   - **URL (or IP):** вставьте ссылку вашего сервиса с Render, добавив в конец `/health`  
-     *(Пример: `https://bio-bsu-bot.onrender.com/health`)*.
+   - **URL (or IP):** вставьте ссылку вашего сервиса с Render  
+     *(Пример: `https://bio-bsu-bot.onrender.com`)*.
    - **Monitoring Interval:** `every 5 minutes`.
 4. Нажмите внизу **«Create Monitor»**.
 
