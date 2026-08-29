@@ -6,6 +6,7 @@ from aiogram.filters import Command, CommandObject, BaseFilter
 from aiogram.types import Message, FSInputFile
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest, TelegramRetryAfter
 from sqlalchemy import select, func
+from tomlkit import datetime
 
 from database import async_session_maker
 from models import User, Group, Lesson
@@ -40,12 +41,13 @@ def is_admin(user_id: Optional[int]) -> bool:
 @router.message(Command("ahelp"))
 async def cmd_admin_help(message: Message):
     text = (
-        "👑 <b>Панель администратора BioBot</b>\n\n"
+        "👑 <b>Панель администратора</b>\n\n"
         "• <code>/stats</code> — статистика БД, RAM-кэша и статус API\n"
         "• <code>/sync</code> — принудительная синхронизация\n"
         "• <code>/apidump</code> — скачать дамп последнего ошибочного ответа сайта\n"
         "• <code>/tech Текст сообщения</code> — рассылка оповещения студентам\n"
-        "• <code>/logs</code> — скачать файл логов (bot.log)"
+        "• <code>/logs</code> — скачать файл логов (bot.log)\n"
+        "• <code>/syncdate YYYY-MM-DD</code> — синхронизация расписания на указанную дату"
     )
     await message.answer(text)
 
@@ -213,3 +215,32 @@ async def cmd_get_logs(message: Message):
         )
     except Exception as e:
         await message.reply(f"❌ Не удалось отправить логи: {e}")
+
+@router.message(Command("syncdate"))
+async def cmd_sync_custom_date(message: Message, command: CommandObject, bot: Bot):
+    if not command.args:
+        await message.reply("⚠️ Укажите дату: <code>/syncdate 2026-09-01</code>")
+        return
+
+    try:
+        target_date = datetime.strptime(command.args.strip(), "%Y-%m-%d").date()
+    except ValueError:
+        await message.reply("❌ Неверный формат даты! Используйте: <code>YYYY-MM-DD</code>")
+        return
+
+    msg = await message.answer(f"⏳ Синхронизирую расписание на неделю от <b>{target_date}</b>...")
+
+    async with async_session_maker() as session:
+        res = await sync_all_courses(session, target_date=target_date, bot=bot)
+        await warm_up_schedule_cache(session)
+
+    if res["total_lessons_saved"] > 0:
+        await msg.edit_text(
+            f"✅ <b>Успешно!</b> Загружено пар: <b>{res['total_lessons_saved']}</b>\n"
+            f"⚡ RAM-кэш обновлен на дату {target_date}."
+        )
+    else:
+        await msg.edit_text(
+            f"⚠️ На дату <b>{target_date}</b> на сайте bio.bsu.by нет пар (вернулся пустой список).\n\n"
+            f"Ошибки:\n• " + "\n• ".join(res["errors"][:3])
+        )

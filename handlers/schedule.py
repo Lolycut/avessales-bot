@@ -43,13 +43,17 @@ def get_active_slot_id() -> int:
 def fetch_lessons_from_cache(group_id: int, target_date: date) -> tuple[date, List[LessonDTO]]:
     monday = target_date - timedelta(days=target_date.weekday())
     lessons = LESSONS_CACHE.get((group_id, monday))
-    if lessons is not None:
+    
+    if lessons:
         return monday, lessons
 
-    available_mondays = [m for (g_id, m) in LESSONS_CACHE.keys() if g_id == group_id]
+    available_mondays = [
+        m for (g_id, m), l_list in LESSONS_CACHE.items() 
+        if g_id == group_id and len(l_list) > 0
+    ]
     if available_mondays:
-        latest_monday = max(available_mondays)
-        return latest_monday, LESSONS_CACHE.get((group_id, latest_monday), [])
+        best_monday = min(available_mondays, key=lambda m: abs((m - target_date).days))
+        return best_monday, LESSONS_CACHE.get((group_id, best_monday), [])
 
     return monday, []
 
