@@ -1,10 +1,9 @@
 import re
 import difflib
 from datetime import timedelta
-from typing import Optional, Any
+from typing import Optional, Any, Dict
 from config import get_minsk_now
 
-# Полные названия дней (для них работает поиск опечаток)
 FULL_DAY_TARGETS = {
     "понедельник": 0, "понедельнику": 0, "понедельника": 0, "понедельнике": 0,
     "вторник": 1, "вторнику": 1, "вторника": 1, "вторнике": 1,
@@ -18,7 +17,6 @@ FULL_DAY_TARGETS = {
     "послезавтра": "after_tomorrow"
 }
 
-# Короткие сокращения (проверяются ТОЛЬКО на точное совпадение)
 SHORT_DAY_TARGETS = {
     "пн": 0, "вт": 1, "ср": 2, "чт": 3, "пт": 4, "сб": 5, "вс": 6
 }
@@ -34,27 +32,20 @@ PAIR_TARGETS = {
     "восьмая": 8, "восьмой": 8, "восьмую": 8, "8": 8, "8-я": 8, "8ую": 8
 }
 
-STOP_WORDS = {"что", "где", "как", "когда", "какая", "какие", "какой", "пары", "пара", "пару", "в", "во", "на"}
+STOP_WORDS = {"что", "где", "как", "когда", "какая", "какие", "какой", "пары", "пара", "пару", "в", "во", "на", "у"}
 
 
 def find_day_in_word(word: str) -> Optional[Any]:
     if not word or word in STOP_WORDS:
         return None
-    
-    # 1. Проверяем точные 2-буквенные сокращения (пн, вт, ср, чт, пт, сб)
     if word in SHORT_DAY_TARGETS:
         return SHORT_DAY_TARGETS[word]
-    
-    # 2. Проверяем точное совпадение полного слова
     if word in FULL_DAY_TARGETS:
         return FULL_DAY_TARGETS[word]
-    
-    # 3. Нечеткий поиск (только для слов от 4 букв, чтобы исключить паразитные совпадения)
     if len(word) >= 4:
         matches = difflib.get_close_matches(word, FULL_DAY_TARGETS.keys(), n=1, cutoff=0.75)
         if matches:
             return FULL_DAY_TARGETS[matches[0]]
-            
     return None
 
 
@@ -69,23 +60,40 @@ def get_best_fuzzy_match(word: str, dictionary: dict, threshold: float = 0.75):
     return None
 
 
-def parse_schedule_query(text: str):
+def parse_schedule_query(text: str) -> Dict[str, Any]:
     today = get_minsk_now().date()
-    clean_text = re.sub(r"[^\w\s-]", " ", text.lower())
+    clean_text = text.lower()
+
+    # 1. Поиск целевой чужой группы (формат: 1-41, 2-2, 3-1, 1-0521-01 и т.д.)
+    target_group = None
+    group_match = re.search(r"\b([1-4])[-_/\s]([0-9]+(?:-[0-9]+)*)\b", clean_text)
+    if group_match:
+        course = int(group_match.group(1))
+        group_num = group_match.group(2)
+        target_group = {"course": course, "group_number": group_num}
+        # Удаляем найденную группу из строки, чтобы её цифры не считались номерами пар
+        clean_text = clean_text[:group_match.start()] + " " + clean_text[group_match.end():]
+
+    clean_text = re.sub(r"[^\w\s-]", " ", clean_text)
     words = clean_text.split()
-    
+
     is_next_week = any(w in clean_text for w in ["след", "следующ", "будущ", "next"])
     is_week_query = any(w in clean_text for w in ["неделю", "неделя", "неделе"])
-    
+
     if is_week_query:
         monday = today - timedelta(days=today.weekday())
         if is_next_week or today.weekday() >= 4:
             monday += timedelta(days=7)
-        return {"type": "week", "date": monday, "day_index": 0}
+        return {
+            "type": "week",
+            "date": monday,
+            "day_index": 0,
+            "target_group": target_group
+        }
 
     matched_day_val = None
     matched_slot_id = None
-    
+
     digit_match = re.search(r"\b([1-8])\s*(?:-?[яеийуюа-я]*)?\s*(?:пара|парой|пары|пару)?\b", clean_text)
     if digit_match:
         matched_slot_id = int(digit_match.group(1))
@@ -105,7 +113,7 @@ def parse_schedule_query(text: str):
     day_index = today.weekday()
 
     if matched_day_val == "current":
-        return {"type": "current", "date": today, "day_index": day_index}
+        return {"type": "current", "date": today, "day_index": day_index, "target_group": target_group}
     elif matched_day_val == "today":
         target_date = today
         day_index = today.weekday()
@@ -123,6 +131,17 @@ def parse_schedule_query(text: str):
         day_index = matched_day_val
 
     if matched_slot_id is not None:
-        return {"type": "slot", "slot_id": matched_slot_id, "date": target_date, "day_index": day_index}
+        return {
+            "type": "slot",
+            "slot_id": matched_slot_id,
+            "date": target_date,
+            "day_index": day_index,
+            "target_group": target_group
+        }
 
-    return {"type": "day", "date": target_date, "day_index": day_index}
+    return {
+        "type": "day",
+        "date": target_date,
+        "day_index": day_index,
+        "target_group": target_group
+    }
