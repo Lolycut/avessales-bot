@@ -6,7 +6,7 @@ from aiogram.filters import Command, CommandObject, BaseFilter
 from aiogram.types import Message, FSInputFile
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest, TelegramRetryAfter
 from sqlalchemy import select, func
-from tomlkit import datetime
+from datetime import datetime
 
 from database import async_session_maker
 from models import User, Group, Lesson
