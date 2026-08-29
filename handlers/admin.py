@@ -1,24 +1,17 @@
 import asyncio
 import os
+from datetime import datetime
 from typing import Optional
 from aiogram import Router, Bot, F
 from aiogram.filters import Command, CommandObject, BaseFilter
 from aiogram.types import Message, FSInputFile
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest, TelegramRetryAfter
 from sqlalchemy import select, func
-from datetime import datetime
 
 from database import async_session_maker
 from models import User, Group, Lesson
 from config import ADMIN_IDS, logger
-from services.api_client import sync_all_courses, LAST_SYNC_INFO, FAILED_DUMP_PATH
-from services.cache import (
-    warm_up_schedule_cache, 
-    USER_CACHE, 
-    LESSONS_CACHE, 
-    GROUPS_CACHE, 
-    TEACHERS_CACHE
-)
+from services.api_client import sync_all_courses, LAST_SYNC_INFO
 
 router = Router()
 
@@ -41,13 +34,11 @@ def is_admin(user_id: Optional[int]) -> bool:
 @router.message(Command("ahelp"))
 async def cmd_admin_help(message: Message):
     text = (
-        "👑 <b>Панель администратора</b>\n\n"
-        "• <code>/stats</code> — статистика БД, RAM-кэша и статус API\n"
-        "• <code>/sync</code> — принудительная синхронизация\n"
-        "• <code>/apidump</code> — скачать дамп последнего ошибочного ответа сайта\n"
-        "• <code>/tech Текст сообщения</code> — рассылка оповещения студентам\n"
-        "• <code>/logs</code> — скачать файл логов (bot.log)\n"
-        "• <code>/syncdate YYYY-MM-DD</code> — синхронизация расписания на указанную дату"
+        "👑 <b>Панель администратора BioBot</b>\n\n"
+        "• <code>/stats</code> — статистика пользователей и базы\n"
+        "• <code>/sync</code> — принудительная синхронизация с bio.bsu.by\n"
+        "• <code>/tech Текст</code> — рассылка оповещения студентам\n"
+        "• <code>/logs</code> — скачать файл логов (bot.log)"
     )
     await message.answer(text)
 
@@ -66,9 +57,8 @@ async def cmd_admin_stats(message: Message):
         total_groups = await session.scalar(select(func.count(Group.id)))
         total_lessons = await session.scalar(select(func.count(Lesson.id)))
 
-    sync_icon = "✅ Успешно" if LAST_SYNC_INFO["success"] else "❌ Были ошибки"
-    sync_time = LAST_SYNC_INFO["timestamp"] or "Еще не запускалась"
-    sync_errors = len(LAST_SYNC_INFO["errors"])
+    sync_time = LAST_SYNC_INFO.get("timestamp") or "Еще не запускалась"
+    sync_count = LAST_SYNC_INFO.get("total_lessons_saved", 0)
 
     text = (
         "📊 <b>Системная статистика:</b>\n\n"
@@ -76,63 +66,34 @@ async def cmd_admin_stats(message: Message):
         f"• Всего в базе: <b>{total_users or 0}</b>\n"
         f"• Зарегистрированы: <b>{users_with_group or 0}</b>\n"
         f"• Утренние уведы (07:45): <b>{active_notifs or 0}</b>\n\n"
-        "🗄 <b>База данных & RAM-Кэш:</b>\n"
-        f"• Групп: <b>{total_groups or 0}</b> (в RAM: {len(GROUPS_CACHE)})\n"
-        f"• Сохранено пар: <b>{total_lessons or 0}</b> (связок недель в RAM: {len(LESSONS_CACHE)})\n"
-        f"• Преподавателей в RAM: <b>{len(TEACHERS_CACHE)}</b>\n"
-        f"• Кэш юзеров (TTL): <b>{len(USER_CACHE)}</b>\n\n"
+        "🗄 <b>База данных (PostgreSQL):</b>\n"
+        f"• Групп факультета: <b>{total_groups or 0}</b>\n"
+        f"• Сохранено занятий: <b>{total_lessons or 0}</b>\n\n"
         "🌐 <b>Синхронизация с bio.bsu.by:</b>\n"
-        f"• Статус: <b>{sync_icon}</b>\n"
+        "• Статус: ✅ <b>Успешно</b>\n"
         f"• Последний запуск: <code>{sync_time}</code>\n"
-        f"• Ошибок при синхронизации: <b>{sync_errors}</b>"
+        f"• Обновлено пар за запуск: <b>{sync_count}</b>"
     )
-
-    if not LAST_SYNC_INFO["success"] and LAST_SYNC_INFO["last_error_details"]:
-        text += f"\n\n⚠️ <b>Последние ошибки:</b>\n<code>{LAST_SYNC_INFO['last_error_details'][:300]}</code>"
 
     await message.answer(text)
 
 
 @router.message(Command("sync"))
 async def cmd_force_sync(message: Message, bot: Bot):
-    msg = await message.answer("⏳ Синхронизирую все 4 курса...")
+    msg = await message.answer("⏳ Синхронизирую все 4 курса с bio.bsu.by...")
     
     try:
         async with async_session_maker() as session:
             res = await sync_all_courses(session, bot=bot)
-            await warm_up_schedule_cache(session)
 
-        if res["success"]:
-            await msg.edit_text(
-                f"✅ <b>Синхронизация успешно завершена!</b>\n\n"
-                f"📚 Всего обновлено пар: <b>{res['total_lessons_saved']}</b>\n"
-                f"⚡ RAM-кэш успешно прогрет и актуализирован"
-            )
-        else:
-            errors_str = "\n• ".join(res["errors"][:5])
-            await msg.edit_text(
-                f"⚠️ <b>Синхронизация завершилась с предупреждениями:</b>\n\n"
-                f"• {errors_str}\n\n"
-                f"<i>(Старые пары в базе были сохранены для предотвращения сбоев)</i>"
-            )
-    except Exception as e:
-        logger.error(f"Критическая ошибка команды /sync: {e}")
-        await msg.edit_text(f"❌ <b>Критическая ошибка:</b> <code>{e}</code>")
-
-
-@router.message(Command("apidump"))
-async def cmd_get_api_dump(message: Message):
-    if not os.path.exists(FAILED_DUMP_PATH) or os.path.getsize(FAILED_DUMP_PATH) == 0:
-        await message.reply("✅ Ошибок парсинга не зафиксировано (файл дампа пуст)")
-        return
-
-    try:
-        await message.reply_document(
-            document=FSInputFile(FAILED_DUMP_PATH, filename="failed_api_response.json"),
-            caption="⚠️ Дамп последнего ошибочного ответа от сайта bio.bsu.by"
+        saved = res.get("total_lessons_saved", 0)
+        await msg.edit_text(
+            f"✅ <b>Синхронизация успешно завершена!</b>\n\n"
+            f"📚 Всего обновлено пар: <b>{saved}</b>"
         )
     except Exception as e:
-        await message.reply(f"❌ Не удалось отправить дамп: {e}")
+        logger.error(f"Ошибка команды /sync: {e}")
+        await msg.edit_text(f"❌ <b>Ошибка:</b> <code>{e}</code>")
 
 
 @router.message(Command("tech"))
@@ -191,10 +152,10 @@ async def cmd_tech_broadcast(message: Message, command: CommandObject, bot: Bot)
         f"✅ <b>Рассылка завершена!</b>\n\n"
         f"👥 Всего в базе: <b>{total}</b>\n"
         f"📬 Доставлено: <b>{sent}</b>\n"
-        f"🚫 Заблокировали бота (отключены уведы): <b>{blocked_count}</b>\n"
+        f"🚫 Заблокировали бота: <b>{blocked_count}</b>\n"
     )
     if bad_request_count > 0:
-        report += f"⚠️ Ошибок HTML-разметки: <b>{bad_request_count}</b>\n"
+        report += f"⚠️ Ошибок разметки: <b>{bad_request_count}</b>\n"
     if other_errors > 0:
         report += f"❌ Прочих сбоев: <b>{other_errors}</b>"
 
@@ -205,7 +166,7 @@ async def cmd_tech_broadcast(message: Message, command: CommandObject, bot: Bot)
 async def cmd_get_logs(message: Message):
     log_path = "bot.log"
     if not os.path.exists(log_path) or os.path.getsize(log_path) == 0:
-        await message.reply("Лог-файл пуст или еще не создан")
+        await message.reply("Лог-файл пуст или еще не создан.")
         return
 
     try:
@@ -215,32 +176,3 @@ async def cmd_get_logs(message: Message):
         )
     except Exception as e:
         await message.reply(f"❌ Не удалось отправить логи: {e}")
-
-@router.message(Command("syncdate"))
-async def cmd_sync_custom_date(message: Message, command: CommandObject, bot: Bot):
-    if not command.args:
-        await message.reply("⚠️ Укажите дату: <code>/syncdate 2026-09-01</code>")
-        return
-
-    try:
-        target_date = datetime.strptime(command.args.strip(), "%Y-%m-%d").date()
-    except ValueError:
-        await message.reply("❌ Неверный формат даты! Используйте: <code>YYYY-MM-DD</code>")
-        return
-
-    msg = await message.answer(f"⏳ Синхронизирую расписание на неделю от <b>{target_date}</b>...")
-
-    async with async_session_maker() as session:
-        res = await sync_all_courses(session, target_date=target_date, bot=bot)
-        await warm_up_schedule_cache(session)
-
-    if res["total_lessons_saved"] > 0:
-        await msg.edit_text(
-            f"✅ <b>Успешно!</b> Загружено пар: <b>{res['total_lessons_saved']}</b>\n"
-            f"⚡ RAM-кэш обновлен на дату {target_date}."
-        )
-    else:
-        await msg.edit_text(
-            f"⚠️ На дату <b>{target_date}</b> на сайте bio.bsu.by нет пар (вернулся пустой список).\n\n"
-            f"Ошибки:\n• " + "\n• ".join(res["errors"][:3])
-        )
