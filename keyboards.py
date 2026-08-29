@@ -1,5 +1,5 @@
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from datetime import date, timedelta
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 def main_menu_kb(notifications: bool = True) -> ReplyKeyboardMarkup:
     notif_btn = "🔔 Уведы: ВКЛ" if notifications else "🔕 Уведы: ВЫКЛ"
@@ -17,7 +17,8 @@ def settings_inline_kb() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="👥 Сменить подгруппу", callback_data="change_subgroup")],
             [InlineKeyboardButton(text="✏️ Изменить никнейм", callback_data="change_nickname")],
-            [InlineKeyboardButton(text="🔄 Сменить группу (перерегистрация)", callback_data="restart_reg")]
+            [InlineKeyboardButton(text="🔄 Сменить группу (перерегистрация)", callback_data="restart_reg")],
+            [InlineKeyboardButton(text="ℹ️ Справка и FAQ", callback_data="show_faq")]
         ]
     )
 
