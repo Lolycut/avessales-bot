@@ -14,7 +14,7 @@ from handlers import start, settings, schedule, admin
 
 
 async def handle_ping(request):
-    return web.Response(text="OK! Bot is healthy")
+    return web.Response(text="OK!")
 
 
 async def start_dummy_webserver():
