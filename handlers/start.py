@@ -8,7 +8,6 @@ from sqlalchemy import select
 from database import async_session_maker
 from models import User, Group
 from keyboards import main_menu_kb, courses_kb, reg_subgroups_kb
-from services.cache import get_cached_user, invalidate_user_cache
 
 router = Router()
 
@@ -24,7 +23,7 @@ class RegistrationFSM(StatesGroup):
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     async with async_session_maker() as session:
-        user = await get_cached_user(session, message.from_user.id)
+        user = await session.get(User, message.from_user.id)
         if user and user.group_id:
             await message.answer(
                 f"Рад снова видеть, <b>{user.first_name}</b>! Что интересует по расписанию?",
@@ -131,8 +130,6 @@ async def save_user_registration(user_id: int, username: str, nickname: str, sta
             
         user.notifications_enabled = True
         await session.commit()
-
-        invalidate_user_cache(user_id)
 
     await state.clear()
     await target_msg.answer(

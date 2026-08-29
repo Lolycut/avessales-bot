@@ -1,11 +1,11 @@
 import asyncio
 import httpx
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from typing import List, Dict, Any, Optional
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import API_BASE_URL, logger
+from config import API_BASE_URL, logger, get_minsk_now
 from models import Group, Week, Lesson
 
 LESSON_TYPES_MAP = {
@@ -16,6 +16,7 @@ LESSON_TYPES_MAP = {
     "other": "ДР"
 }
 
+# Глобальный статус синхронизации для команды /stats
 LAST_SYNC_INFO: Dict[str, Any] = {
     "timestamp": None,
     "success": True,
@@ -25,8 +26,7 @@ LAST_SYNC_INFO: Dict[str, Any] = {
 
 
 def get_current_date() -> date:
-    minsk_tz = timezone(timedelta(hours=3))
-    return datetime.now(minsk_tz).date()
+    return get_minsk_now().date()
 
 
 class BioBSUApiClient:
@@ -162,7 +162,7 @@ async def sync_schedule_to_db(session: AsyncSession, target_date: Optional[date]
 
     raw_lessons = await api_client.fetch_schedule(week_id=week_id, course=course, study_mode=study_mode)
     if not raw_lessons:
-        return 0  # Тихо пропускаем пустые каникулярные недели
+        return 0  # Спокойно пропускаем пустые каникулярные недели
 
     new_lessons = []
     for item in raw_lessons:
@@ -203,8 +203,6 @@ async def sync_schedule_to_db(session: AsyncSession, target_date: Optional[date]
 
 
 async def sync_all_courses(session: AsyncSession, target_date: Optional[date] = None, bot=None) -> Dict[str, Any]:
-    global LAST_SYNC_INFO
-
     if target_date is None:
         target_date = get_current_date()
 
@@ -224,13 +222,16 @@ async def sync_all_courses(session: AsyncSession, target_date: Optional[date] = 
         except Exception as e:
             logger.error(f"Ошибка синхронизации курса {c}: {e}")
 
-    now_str = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-    LAST_SYNC_INFO.update({
-    "timestamp": now_str,
-    "success": True,
-    "errors": [],
-    "total_lessons_saved": total_lessons
-    }) 
+    # Точное Минское время UTC+3
+    now_str = get_minsk_now().strftime("%d.%m.%Y %H:%M:%S")
 
-    logger.info(f"Синхронизация завершена в {now_str}. Всего сохранено пар: {total_lessons}")
+    # In-place обновление словаря, чтобы handlers/admin.py сразу увидел изменения
+    LAST_SYNC_INFO.update({
+        "timestamp": now_str,
+        "success": True,
+        "errors": [],
+        "total_lessons_saved": total_lessons
+    })
+
+    logger.info(f"Синхронизация завершена в {now_str} (Минск). Всего сохранено пар: {total_lessons}")
     return LAST_SYNC_INFO

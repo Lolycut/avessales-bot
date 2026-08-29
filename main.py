@@ -8,7 +8,6 @@ from aiogram.enums import ParseMode
 from config import BOT_TOKEN, logger, get_minsk_now
 from database import async_session_maker
 from services.api_client import sync_all_courses, api_client
-from services.cache import warm_up_schedule_cache
 from services.notifications import morning_notifications_loop
 from handlers import start, settings, schedule, admin
 
@@ -37,8 +36,7 @@ async def schedule_auto_sync_task(bot: Bot):
             logger.info("⏰ Фоновое автообновление расписания с bio.bsu.by...")
             async with async_session_maker() as session:
                 await sync_all_courses(session, target_date=get_minsk_now().date(), bot=bot)
-                await warm_up_schedule_cache(session)
-            logger.info("✅ Расписание успешно обновлено и закэшировано в RAM!")
+            logger.info("✅ Расписание успешно обновлено в фоне!")
         except asyncio.CancelledError:
             break
         except Exception as e:
@@ -49,10 +47,7 @@ async def on_startup(bot: Bot):
     logger.info("🔄 Первичная синхронизация данных с bio.bsu.by...")
     async with async_session_maker() as session:
         await sync_all_courses(session, target_date=get_minsk_now().date(), bot=bot)
-        logger.info("⚡ Прогрев оперативного RAM-кэша...")
-        await warm_up_schedule_cache(session)
-        
-    logger.info("🚀 Бот и RAM-кэш полностью готовы к работе!")
+    logger.info("🚀 Бот полностью готов к работе!")
 
 
 async def main():
@@ -70,11 +65,11 @@ async def main():
     sync_task = asyncio.create_task(schedule_auto_sync_task(bot))
     notify_task = asyncio.create_task(morning_notifications_loop(bot))
 
-    logger.info("Бот успешно запущен в режиме Polling...")
+    logger.info("Bot успешно запущен в режиме Popping...")
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
-        logger.info("🛑 Остановка бота...")
+        logger.info("🛑 Остановка бота и очистка ресурсов...")
         sync_task.cancel()
         notify_task.cancel()
         await api_client.close()
