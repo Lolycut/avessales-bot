@@ -1,3 +1,4 @@
+import re
 from datetime import date, timedelta, datetime
 from typing import Optional, List, Dict, Any
 from aiogram import Router, F, Bot
@@ -5,7 +6,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
-from sqlalchemy import select, or_
+from sqlalchemy import select
 
 from database import async_session_maker
 from models import User, Group, Week, Lesson
@@ -22,6 +23,14 @@ from config import get_minsk_now, logger
 
 router = Router()
 
+TEACHER_STOP_WORDS = {
+    "где", "препод", "преподаватель", "препода", "преподавателя", "пары", 
+    "пара", "пару", "расписание", "неделя", "неделю", "неделе", "неделей",
+    "на", "в", "во", "у", "какая", "какой", "что", "когда", "след", 
+    "следующая", "следующую", "следующей", "завтра", "сегодня", 
+    "пн", "вт", "ср", "чт", "пт", "сб"
+}
+
 
 def get_active_slot_id() -> int:
     now = get_minsk_now()
@@ -34,16 +43,15 @@ def get_active_slot_id() -> int:
 
 
 async def get_lessons_for_group_from_db(session, group: Group, target_date: date) -> tuple[date, List[Lesson]]:
-    """Прямая и надежная выборка расписания из PostgreSQL."""
     monday = target_date - timedelta(days=target_date.weekday())
 
-    # 1. Пробуем найти неделю с точной датой понедельника
+    # 1. Пробуем найти точную неделю
     week_res = await session.execute(
         select(Week).where(Week.course == group.course, Week.start_date == monday)
     )
     week = week_res.scalar_one_or_none()
 
-    # 2. Если точной даты нет (стык месяцев/каникулы) — берем ближайшую неделю с парами для этой группы
+    # 2. Если на эту дату пусто — берем ближайшую/актуальную неделю с парами
     if not week:
         week_res = await session.execute(
             select(Week)
@@ -57,7 +65,6 @@ async def get_lessons_for_group_from_db(session, group: Group, target_date: date
     if not week:
         return monday, []
 
-    # 3. Достаем все пары для группы на найденную неделю
     lessons_res = await session.execute(
         select(Lesson).where(Lesson.group_id == group.id, Lesson.week_id == week.id)
     )
@@ -82,41 +89,67 @@ async def send_week_schedule(user_name: str, group: Group, target_subgroup: int,
 
 
 async def try_find_teacher_schedule_db(session, query_text: str, target_date: date) -> Optional[tuple[str, date, List[Dict[str, Any]]]]:
-    clean = query_text.replace("где", "").replace("препод", "").replace("преподаватель", "").replace("пары", "").replace("расписание", "").strip()
-    if len(clean) < 3:
+    clean = re.sub(r"[^\w\s-]", " ", query_text.lower())
+    words = [w for w in clean.split() if w not in TEACHER_STOP_WORDS and len(w) >= 3]
+    if not words:
         return None
 
-    # Ищем преподавателя через ILIKE в базе
-    matched_lesson = await session.execute(
-        select(Lesson.teacher).where(Lesson.teacher.ilike(f"%{clean}%")).limit(1)
+    # Достаем всех преподавателей из базы
+    teachers_res = await session.execute(
+        select(Lesson.teacher).where(Lesson.teacher.is_not(None)).distinct()
     )
-    teacher_name = matched_lesson.scalar_one_or_none()
-    if not teacher_name:
+    all_teachers = [t for t in teachers_res.scalars().all() if t]
+    if not all_teachers:
+        return None
+
+    matched_teacher = None
+    for word in words:
+        stem = word[:-1] if len(word) > 4 else word
+        for t in all_teachers:
+            t_lower = t.lower()
+            if stem in t_lower or word in t_lower:
+                matched_teacher = t
+                break
+        if matched_teacher:
+            break
+
+    if not matched_teacher:
         return None
 
     monday = target_date - timedelta(days=target_date.weekday())
     
-    # Ищем неделю
-    week_res = await session.execute(
-        select(Week).where(Week.start_date == monday).limit(1)
-    )
-    week = week_res.scalar_one_or_none()
-    if not week:
-        week_res = await session.execute(
-            select(Week).order_by(Week.start_date.desc()).limit(1)
-        )
-        week = week_res.scalar_one_or_none()
-
-    if not week:
-        return None
-
-    # Достаем все пары этого преподавателя
+    # 1. Проверяем пары на запрошенную неделю
     lessons_res = await session.execute(
         select(Lesson, Group)
         .join(Group, Group.id == Lesson.group_id)
-        .where(Lesson.teacher == teacher_name, Lesson.week_id == week.id)
+        .join(Week, Week.id == Lesson.week_id)
+        .where(Lesson.teacher == matched_teacher, Week.start_date == monday)
     )
     rows = lessons_res.all()
+    actual_monday = monday
+
+    # 2. Если на запрошенную неделю у преподавателя пусто — ищем ближайшую неделю с его парами
+    if not rows:
+        week_res = await session.execute(
+            select(Week.start_date)
+            .join(Lesson, Lesson.week_id == Week.id)
+            .where(Lesson.teacher == matched_teacher)
+            .order_by(Week.start_date.desc())
+            .limit(1)
+        )
+        found_monday = week_res.scalar_one_or_none()
+        if found_monday:
+            actual_monday = found_monday
+            lessons_res = await session.execute(
+                select(Lesson, Group)
+                .join(Group, Group.id == Lesson.group_id)
+                .join(Week, Week.id == Lesson.week_id)
+                .where(Lesson.teacher == matched_teacher, Week.start_date == actual_monday)
+            )
+            rows = lessons_res.all()
+
+    if not rows:
+        return None
 
     grouped_slots: Dict[tuple, Dict[str, Any]] = {}
     for lesson, group in rows:
@@ -142,7 +175,7 @@ async def try_find_teacher_schedule_db(session, query_text: str, target_date: da
         item["groups_display"] = ", ".join(item["groups"])
         lessons_list.append(item)
 
-    return teacher_name, week.start_date, lessons_list
+    return matched_teacher, actual_monday, lessons_list
 
 
 @router.message(Command("teachers"))
@@ -162,7 +195,7 @@ async def cmd_list_teachers(message: Message):
     for t in teachers:
         text += f"• <code>{t}</code>\n"
     
-    text += "\n💡 <i>Чтобы посмотреть расписание преподавателя, напишите его фамилию (например: <b>Кукулянская</b>)</i>"
+    text += "\n💡 <i>Чтобы посмотреть расписание преподавателя, напишите его фамилию (например: <b>Кукулянская</b> или <b>пары Сысова</b>)</i>"
     await message.answer(text)
 
 
@@ -212,7 +245,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
     parsed = parse_schedule_query(message.text)
 
     async with async_session_maker() as session:
-        # 1. Поиск преподавателя
+        # 1. Поиск преподавателя (ПРИОРИТЕТ)
         teacher_match = await try_find_teacher_schedule_db(session, message.text, parsed["date"])
         if teacher_match:
             teacher_name, monday, lessons_data = teacher_match
