@@ -10,108 +10,21 @@ from services.dto import GroupDTO, WeekDTO, LessonDTO, TeacherSlotDTO
 from config import logger
 
 TEACHER_STOP_WORDS = {
-    "где",
-    "препод",
-    "преподаватель",
-    "препода",
-    "преподавателя",
-    "преподавателю",
-    "пары",
-    "пара",
-    "пару",
-    "паре",
-    "парой",
-    "парам",
-    "парами",
-    "парах",
-    "расписание",
-    "расписанию",
-    "расписанием",
-    "расписании",
-    "неделя",
-    "неделю",
-    "неделе",
-    "неделей",
-    "недели",
-    "на",
-    "в",
-    "во",
-    "у",
-    "к",
-    "с",
-    "со",
-    "от",
-    "до",
-    "по",
-    "о",
-    "об",
-    "за",
-    "из",
-    "какая",
-    "какой",
-    "какие",
-    "каком",
-    "какую",
-    "что",
-    "когда",
-    "кто",
-    "кем",
-    "кому",
-    "след",
-    "следующая",
-    "следующую",
-    "следующей",
-    "следующий",
-    "будет",
-    "были",
-    "было",
-    "завтра",
-    "сегодня",
-    "послезавтра",
-    "вчера",
-    "сейчас",
-    "пн",
-    "вт",
-    "ср",
-    "чт",
-    "пт",
-    "сб",
-    "вс",
-    "курс",
-    "курса",
-    "курсе",
-    "курсу",
-    "группа",
-    "группы",
-    "группе",
-    "группу",
-    "группой",
-    "ауд",
-    "аудитория",
-    "аудитории",
-    "аудиторию",
-    "корпус",
-    "корпусе",
-    "подгруппа",
-    "подгруппы",
-    "подгруппе",
-    "подгруппу",
-    "там",
-    "тут",
-    "здесь",
-    "туда",
-    "сюда",
-    "куда",
-    "откуда",
-    "привет",
-    "хай",
-    "ку",
-    "скиньте",
-    "лаба",
-    "лабу",
-    "дз",
-    "лекция",
-    "лекции",
+    "где", "препод", "преподаватель", "препода", "преподавателя", "преподавателю",
+    "пары", "пара", "пару", "паре", "парой", "парам", "парами", "парах",
+    "расписание", "расписанию", "расписанием", "расписании",
+    "неделя", "неделю", "неделе", "неделей", "недели",
+    "на", "в", "во", "у", "к", "с", "со", "от", "до", "по", "о", "об", "за", "из",
+    "какая", "какой", "какие", "каком", "какую", "что", "когда", "кто", "кем", "кому",
+    "след", "следующая", "следующую", "следующей", "следующий", "будет", "были", "было",
+    "завтра", "сегодня", "послезавтра", "вчера", "сейчас",
+    "пн", "вт", "ср", "чт", "пт", "сб", "вс",
+    "курс", "курса", "курсе", "курсу",
+    "группа", "группы", "группе", "группу", "группой",
+    "ауд", "аудитория", "аудитории", "аудиторию", "корпус", "корпусе",
+    "подгруппа", "подгруппы", "подгруппе", "подгруппу",
+    "там", "тут", "здесь", "туда", "сюда", "куда", "откуда",
+    "привет", "хай", "ку", "скиньте", "лаба", "лабу", "дз", "лекция", "лекции"
 }
 
 
@@ -119,7 +32,7 @@ def _match_teacher_surname(query_word: str, full_teacher_name: str) -> bool:
     parts = full_teacher_name.strip().split()
     if not parts:
         return False
-
+    
     # Ищем ТОЛЬКО по фамилии (первое слово ФИО)
     surname = parts[0].lower()
     q = query_word.lower()
@@ -187,7 +100,11 @@ class ScheduleCache:
         for g in db_groups:
             clean_num = str(g.number).strip()
             dto = GroupDTO(
-                id=g.id, course=g.course, number=clean_num, name=g.name, study_mode=g.study_mode or "Дневная"
+                id=g.id,
+                course=g.course,
+                number=clean_num,
+                name=g.name,
+                study_mode=g.study_mode or "Дневная"
             )
             new_groups_by_id[g.id] = dto
             new_groups_by_course_num[(g.course, clean_num)] = dto
@@ -200,7 +117,12 @@ class ScheduleCache:
         new_weeks_by_course: dict[int, list[WeekDTO]] = defaultdict(list)
 
         for w in db_weeks:
-            dto = WeekDTO(id=w.id, course=w.course, start_date=w.start_date, study_mode=w.study_mode or "Дневная")
+            dto = WeekDTO(
+                id=w.id,
+                course=w.course,
+                start_date=w.start_date,
+                study_mode=w.study_mode or "Дневная"
+            )
             new_weeks_by_id[w.id] = dto
             new_weeks_by_course[w.course].append(dto)
 
@@ -224,7 +146,7 @@ class ScheduleCache:
                 teacher=l.teacher,
                 room=l.room,
                 address=l.address,
-                subgroup=l.subgroup,
+                subgroup=l.subgroup
             )
             new_lessons_by_group_week[(l.group_id, l.week_id)].append(lesson_dto)
 
@@ -287,9 +209,7 @@ class ScheduleCache:
         lessons = self._lessons_by_group_week.get((group_id, target_week.id), [])
         return target_week.start_date, lessons
 
-    def find_teacher_schedule(
-        self, query_text: str, target_date: date
-    ) -> tuple[str, date, list[TeacherSlotDTO]] | None:
+    def find_teacher_schedule(self, query_text: str, target_date: date) -> tuple[str, date, list[TeacherSlotDTO]] | None:
         clean = re.sub(r"[^\w\s-]", " ", query_text.lower())
         words = [w for w in clean.split() if w not in TEACHER_STOP_WORDS and len(w) >= 3]
         if not words or not self._teachers_list:
@@ -329,7 +249,7 @@ class ScheduleCache:
         for lesson, group, week in target_records:
             g_tag = f"{group.course}-{group.number}" if group else "?"
             key = (lesson.day, lesson.slot_id, lesson.subject, lesson.lesson_type, lesson.room)
-
+            
             if key not in grouped_slots:
                 grouped_slots[key] = TeacherSlotDTO(
                     day=lesson.day,
@@ -339,7 +259,7 @@ class ScheduleCache:
                     room=lesson.room,
                     address=lesson.address,
                     subgroup=lesson.subgroup,
-                    groups=[g_tag],
+                    groups=[g_tag]
                 )
             else:
                 if g_tag not in grouped_slots[key].groups:

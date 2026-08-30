@@ -15,14 +15,14 @@ NOTIFY_MINUTE = 45
 
 
 async def send_to_recipient(
-    bot: Bot,
-    target_id: int,
-    group_id: int,
-    subgroup: int,
-    name: str,
-    today: date,
-    day_index: int,
-    semaphore: asyncio.Semaphore,
+    bot: Bot, 
+    target_id: int, 
+    group_id: int, 
+    subgroup: int, 
+    name: str, 
+    today: date, 
+    day_index: int, 
+    semaphore: asyncio.Semaphore
 ) -> bool:
     async with semaphore:
         group = schedule_cache.get_group_by_id(group_id)
@@ -32,7 +32,8 @@ async def send_to_recipient(
         actual_monday, lessons = schedule_cache.get_lessons_for_group(group.id, group.course, today)
 
         today_lessons = [
-            l for l in lessons if l.day == day_index and (l.subgroup is None or l.subgroup == subgroup or subgroup == 0)
+            l for l in lessons 
+            if l.day == day_index and (l.subgroup is None or l.subgroup == subgroup or subgroup == 0)
         ]
 
         if not today_lessons:
@@ -44,7 +45,7 @@ async def send_to_recipient(
             user_subgroup=subgroup,
             day_index=day_index,
             target_date=today,
-            lessons=lessons,
+            lessons=lessons
         )
 
         try:
@@ -63,7 +64,7 @@ async def send_morning_schedule(bot: Bot):
         return
 
     logger.info("🌅 Запуск утренней рассылки расписания (07:45 Минск)...")
-
+    
     async with async_session_maker() as session:
         users_res = await session.execute(
             select(User).where(User.notifications_enabled == True, User.group_id.is_not(None))
@@ -91,7 +92,7 @@ async def send_morning_schedule(bot: Bot):
                 name=u.first_name or "Студент",
                 today=today,
                 day_index=day_index,
-                semaphore=semaphore,
+                semaphore=semaphore
             )
         )
 
@@ -105,7 +106,7 @@ async def send_morning_schedule(bot: Bot):
                 name=c.title or "Группа",
                 today=today,
                 day_index=day_index,
-                semaphore=semaphore,
+                semaphore=semaphore
             )
         )
 
@@ -114,7 +115,10 @@ async def send_morning_schedule(bot: Bot):
     logger.info(f"✅ Утренняя рассылка завершена. Доставлено: {sent_count}/{len(tasks)}")
 
 
-async def dispatch_schedule_changes(bot: Bot, all_changes: dict[int, tuple[date, list[ScheduleChangeDTO]]]):
+async def dispatch_schedule_changes(
+    bot: Bot, 
+    all_changes: dict[int, tuple[date, list[ScheduleChangeDTO]]]
+):
     if not all_changes:
         return
 
@@ -127,7 +131,9 @@ async def dispatch_schedule_changes(bot: Bot, all_changes: dict[int, tuple[date,
             continue
 
         rich_msg = build_schedule_changes_rich_message(
-            group_name=f"{group.course}-{group.number} ({group.name})", start_monday=monday, changes=changes
+            group_name=f"{group.course}-{group.number} ({group.name})",
+            start_monday=monday,
+            changes=changes
         )
 
         async with async_session_maker() as session:

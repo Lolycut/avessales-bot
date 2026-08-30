@@ -9,9 +9,9 @@ def main_menu_kb(notifications: bool = True) -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="📅 Сегодня"), KeyboardButton(text="📆 Завтра")],
             [KeyboardButton(text="⚡ Какая пара сейчас?"), KeyboardButton(text="🗓 На неделю")],
-            [KeyboardButton(text=notif_btn), KeyboardButton(text="⚙️ Настройки")],
+            [KeyboardButton(text=notif_btn), KeyboardButton(text="⚙️ Настройки")]
         ],
-        resize_keyboard=True,
+        resize_keyboard=True
     )
 
 
@@ -22,7 +22,7 @@ def settings_inline_kb() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="✏️ Изменить никнейм", callback_data="change_nickname")],
             [InlineKeyboardButton(text="🔄 Сменить группу (перерегистрация)", callback_data="restart_reg")],
             [InlineKeyboardButton(text="ℹ️ Справка и FAQ", callback_data="show_faq")],
-            [InlineKeyboardButton(text="📜 Соглашение и конфиденциальность", callback_data="show_terms")],
+            [InlineKeyboardButton(text="📜 Соглашение и конфиденциальность", callback_data="show_terms")]
         ]
     )
 
@@ -32,12 +32,12 @@ def courses_kb() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="1️⃣ курс", callback_data="sel_course_1"),
-                InlineKeyboardButton(text="2️⃣ курс", callback_data="sel_course_2"),
+                InlineKeyboardButton(text="2️⃣ курс", callback_data="sel_course_2")
             ],
             [
                 InlineKeyboardButton(text="3️⃣ курс", callback_data="sel_course_3"),
-                InlineKeyboardButton(text="4️⃣ курс", callback_data="sel_course_4"),
-            ],
+                InlineKeyboardButton(text="4️⃣ курс", callback_data="sel_course_4")
+            ]
         ]
     )
 
@@ -47,9 +47,9 @@ def reg_subgroups_kb() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="1-я подгруппа", callback_data="reg_subgroup_1"),
-                InlineKeyboardButton(text="2-я подгруппа", callback_data="reg_subgroup_2"),
+                InlineKeyboardButton(text="2-я подгруппа", callback_data="reg_subgroup_2")
             ],
-            [InlineKeyboardButton(text="Вся группа (без деления)", callback_data="reg_subgroup_0")],
+            [InlineKeyboardButton(text="Вся группа (без деления)", callback_data="reg_subgroup_0")]
         ]
     )
 
@@ -59,9 +59,9 @@ def settings_subgroups_kb() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="1-я подгруппа", callback_data="set_subgroup_1"),
-                InlineKeyboardButton(text="2-я подгруппа", callback_data="set_subgroup_2"),
+                InlineKeyboardButton(text="2-я подгруппа", callback_data="set_subgroup_2")
             ],
-            [InlineKeyboardButton(text="Вся группа (без деления)", callback_data="set_subgroup_0")],
+            [InlineKeyboardButton(text="Вся группа (без деления)", callback_data="set_subgroup_0")]
         ]
     )
 
@@ -73,11 +73,13 @@ def week_nav_kb(current_monday: date) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="◀️ Пред. неделя", callback_data=f"week_date_{prev_monday.strftime('%Y-%m-%d')}"
+                    text="◀️ Пред. неделя", 
+                    callback_data=f"week_date_{prev_monday.strftime('%Y-%m-%d')}"
                 ),
                 InlineKeyboardButton(
-                    text="След. неделя ▶️", callback_data=f"week_date_{next_monday.strftime('%Y-%m-%d')}"
-                ),
+                    text="След. неделя ▶️", 
+                    callback_data=f"week_date_{next_monday.strftime('%Y-%m-%d')}"
+                )
             ]
         ]
     )
@@ -86,7 +88,6 @@ def week_nav_kb(current_monday: date) -> InlineKeyboardMarkup:
 # ==========================================
 # Клавиатуры для беседы (группового чата)
 # ==========================================
-
 
 def group_chat_settings_kb(chat_id: int, is_active: bool, notifications_enabled: bool) -> InlineKeyboardMarkup:
     active_text = "💬 Ответы в чате: ВКЛ 🟢" if is_active else "💬 Ответы в чате: ВЫКЛ 🔴"
@@ -97,7 +98,7 @@ def group_chat_settings_kb(chat_id: int, is_active: bool, notifications_enabled:
             [InlineKeyboardButton(text=active_text, callback_data=f"g_toggle_act_{chat_id}")],
             [InlineKeyboardButton(text=notif_text, callback_data=f"g_toggle_not_{chat_id}")],
             [InlineKeyboardButton(text="🎓 Установить группу беседы", callback_data=f"g_pick_crs_{chat_id}")],
-            [InlineKeyboardButton(text="❌ Закрыть меню", callback_data=f"g_close_{chat_id}")],
+            [InlineKeyboardButton(text="❌ Закрыть меню", callback_data=f"g_close_{chat_id}")]
         ]
     )
 
@@ -107,13 +108,13 @@ def group_chat_courses_kb(chat_id: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="1️⃣ курс", callback_data=f"g_crs_{chat_id}_1"),
-                InlineKeyboardButton(text="2️⃣ курс", callback_data=f"g_crs_{chat_id}_2"),
+                InlineKeyboardButton(text="2️⃣ курс", callback_data=f"g_crs_{chat_id}_2")
             ],
             [
                 InlineKeyboardButton(text="3️⃣ курс", callback_data=f"g_crs_{chat_id}_3"),
-                InlineKeyboardButton(text="4️⃣ курс", callback_data=f"g_crs_{chat_id}_4"),
+                InlineKeyboardButton(text="4️⃣ курс", callback_data=f"g_crs_{chat_id}_4")
             ],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"g_back_{chat_id}")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"g_back_{chat_id}")]
         ]
     )
 

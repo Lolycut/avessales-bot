@@ -11,11 +11,11 @@ from models import User, Chat
 from services.dto import GroupDTO
 from services.schedule_cache import schedule_cache
 from services.formatter import (
-    build_native_rich_schedule,
-    format_full_week_rich_message,
+    build_native_rich_schedule, 
+    format_full_week_rich_message, 
     format_teacher_rich_schedule,
-    TIMESLOTS,
-    DAYS_NAMES,
+    TIMESLOTS, 
+    DAYS_NAMES
 )
 from services.query_parser import parse_schedule_query
 from keyboards import week_nav_kb
@@ -35,7 +35,12 @@ def get_active_slot_id() -> int | None:
 
 
 async def send_week_schedule(
-    user_name: str, group: GroupDTO, target_subgroup: int, target_date: date, chat_id: int, bot: Bot
+    user_name: str, 
+    group: GroupDTO, 
+    target_subgroup: int, 
+    target_date: date, 
+    chat_id: int, 
+    bot: Bot
 ):
     actual_monday, lessons = schedule_cache.get_lessons_for_group(group.id, group.course, target_date)
     rich_msg = format_full_week_rich_message(
@@ -43,9 +48,13 @@ async def send_week_schedule(
         group_name=group.name,
         user_subgroup=target_subgroup,
         start_monday=actual_monday,
-        lessons=lessons,
+        lessons=lessons
     )
-    await bot.send_rich_message(chat_id=chat_id, rich_message=rich_msg, reply_markup=week_nav_kb(actual_monday))
+    await bot.send_rich_message(
+        chat_id=chat_id, 
+        rich_message=rich_msg,
+        reply_markup=week_nav_kb(actual_monday)
+    )
 
 
 @router.message(Command("teachers"))
@@ -60,7 +69,7 @@ async def cmd_list_teachers(message: Message):
     text = "👨‍🏫 <b>Преподаватели факультета в базе:</b>\n\n"
     for t in teachers:
         text += f"• <code>{t}</code>\n"
-
+    
     text += "\n💡 <i>Чтобы посмотреть расписание преподавателя, напишите его фамилию (например: <b>Кукулянская</b> или <b>пары Гричика</b>)</i>"
     await message.answer(text)
 
@@ -111,7 +120,7 @@ async def callback_switch_week_by_date(callback: CallbackQuery, bot: Bot):
         target_subgroup=target_subgroup,
         target_date=target_monday,
         chat_id=callback.message.chat.id,
-        bot=bot,
+        bot=bot
     )
 
 
@@ -141,7 +150,9 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
     if teacher_match:
         teacher_name, monday, lessons_data = teacher_match
         rich_msg = format_teacher_rich_schedule(
-            teacher_full_name=teacher_name, start_monday=monday, lessons_data=lessons_data
+            teacher_full_name=teacher_name,
+            start_monday=monday,
+            lessons_data=lessons_data
         )
         await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg)
         return
@@ -194,7 +205,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
             target_subgroup=target_subgroup,
             target_date=parsed["date"],
             chat_id=message.chat.id,
-            bot=bot,
+            bot=bot
         )
         return
 
@@ -207,34 +218,26 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         if parsed["type"] == "current":
             slot_id = get_active_slot_id()
             if slot_id is None:
-                await message.answer(
-                    f"🌴 <b>{day_name} ({formatted_date})</b> | {group.name}\nВсе пары на сегодня уже закончились! Отдыхайте ✨"
-                )
+                await message.answer(f"🌴 <b>{day_name} ({formatted_date})</b> | {group.name}\nВсе пары на сегодня уже закончились! Отдыхайте ✨")
                 return
         else:
             slot_id = parsed["slot_id"]
 
         matched = [
-            l
-            for l in lessons
-            if l.day == parsed["day_index"]
-            and l.slot_id == slot_id
-            and (l.subgroup is None or l.subgroup == target_subgroup or target_subgroup == 0)
+            l for l in lessons 
+            if l.day == parsed["day_index"] and l.slot_id == slot_id and 
+            (l.subgroup is None or l.subgroup == target_subgroup or target_subgroup == 0)
         ]
-
+        
         slot_info = TIMESLOTS.get(slot_id, {"order": f"{slot_id}️⃣", "time": "--:--"})
         if not matched:
             status = "сейчас нет пар" if parsed["type"] == "current" else f"нет {slot_id}-й пары"
             await message.answer(f"🌴 <b>{day_name} ({formatted_date})</b> | {group.name}\nУ вас {status}!")
             return
-
+            
         l = matched[0]
         room_str = f"🚪 <b>ауд. {l.room}</b>" if l.room else "🚪 <i>ауд. ?</i>"
-        loc_str = (
-            f"{room_str} ⚠️ <b>({l.address}) — ВЫЕЗД!</b>"
-            if l.address and "курчатова" not in l.address.lower()
-            else room_str
-        )
+        loc_str = f"{room_str} ⚠️ <b>({l.address}) — ВЫЕЗД!</b>" if l.address and "курчатова" not in l.address.lower() else room_str
         teacher_str = f"👤 <i>{l.teacher}</i>" if l.teacher else "👤 <i>Преподаватель не указан</i>"
         sub_tag = f" [Подгруппа {l.subgroup}]" if l.subgroup else ""
         prefix = f"⚡ <b>Пара ({group.number} группа):</b>\n" if parsed["type"] == "current" else ""
@@ -255,7 +258,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         user_subgroup=target_subgroup,
         day_index=parsed["day_index"],
         target_date=parsed["date"],
-        lessons=lessons,
+        lessons=lessons
     )
 
     await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg)

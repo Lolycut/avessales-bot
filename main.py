@@ -25,7 +25,7 @@ async def start_dummy_webserver() -> web.AppRunner | None:
         app.router.add_get("/health", handle_ping)
         runner = web.AppRunner(app)
         await runner.setup()
-
+        
         port = int(os.getenv("PORT", 7860))
         site = web.TCPSite(runner, "0.0.0.0", port)
         await site.start()
@@ -54,7 +54,7 @@ async def schedule_auto_sync_task(bot: Bot):
 
 async def on_startup(bot: Bot):
     logger.info("🔄 Инициализация приложения и загрузка данных...")
-
+    
     # 0. Автоматическое создание недостающих таблиц (например, chats)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -109,7 +109,7 @@ async def main():
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         logger.info("🛑 Остановка бота, завершение фоновых задач и освобождение ресурсов...")
-
+        
         sync_task.cancel()
         notify_task.cancel()
         await asyncio.gather(sync_task, notify_task, return_exceptions=True)
