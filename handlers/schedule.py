@@ -4,9 +4,10 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.enums import ChatType
 
 from database import async_session_maker
-from models import User
+from models import User, Chat
 from services.dto import GroupDTO
 from services.schedule_cache import schedule_cache
 from services.formatter import (
@@ -30,7 +31,7 @@ def get_active_slot_id() -> int | None:
         h, m = map(int, times["time"].split(" - ")[1].split(":"))
         if cur_minutes <= h * 60 + m:
             return slot_id
-    return None  # Все пары на сегодня закончились
+    return None
 
 
 async def send_week_schedule(
@@ -69,7 +70,7 @@ async def cmd_list_teachers(message: Message):
     for t in teachers:
         text += f"• <code>{t}</code>\n"
     
-    text += "\n💡 <i>Чтобы посмотреть расписание преподавателя, напишите его фамилию (например: <b>Кукулянская</b> или <b>пары Сысова</b>)</i>"
+    text += "\n💡 <i>Чтобы посмотреть расписание преподавателя, напишите его фамилию (например: <b>Кукулянская</b> или <b>пары Гричика</b>)</i>"
     await message.answer(text)
 
 
@@ -86,12 +87,25 @@ async def callback_switch_week_by_date(callback: CallbackQuery, bot: Bot):
     except ValueError:
         return
 
-    async with async_session_maker() as session:
-        user = await session.get(User, callback.from_user.id)
-        if not user or not user.group_id:
-            return
+    is_group_chat = callback.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
 
-    group = schedule_cache.get_group_by_id(user.group_id)
+    async with async_session_maker() as session:
+        if is_group_chat:
+            chat_obj = await session.get(Chat, callback.message.chat.id)
+            if not chat_obj or not chat_obj.group_id:
+                return
+            group_id = chat_obj.group_id
+            target_subgroup = 0
+            user_name = callback.message.chat.title or "Группа"
+        else:
+            user = await session.get(User, callback.from_user.id)
+            if not user or not user.group_id:
+                return
+            group_id = user.group_id
+            target_subgroup = user.subgroup or 0
+            user_name = user.first_name or "Студент"
+
+    group = schedule_cache.get_group_by_id(group_id)
     if not group:
         return
 
@@ -101,9 +115,9 @@ async def callback_switch_week_by_date(callback: CallbackQuery, bot: Bot):
         pass
 
     await send_week_schedule(
-        user_name=user.first_name or "Студент",
+        user_name=user_name,
         group=group,
-        target_subgroup=user.subgroup or 0,
+        target_subgroup=target_subgroup,
         target_date=target_monday,
         chat_id=callback.message.chat.id,
         bot=bot
@@ -115,11 +129,24 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
     if message.text.startswith("/") or "Уведы" in message.text or "Настройки" in message.text:
         return
 
-    await state.clear()
-    parsed = parse_schedule_query(message.text)
+    is_group_chat = message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
 
-    # 1. Преподаватель (In-Memory)
-    teacher_match = schedule_cache.find_teacher_schedule(message.text, parsed["date"])
+    # 0. Проверка настроек беседы
+    if is_group_chat:
+        async with async_session_maker() as session:
+            chat_obj = await session.get(Chat, message.chat.id)
+            if not chat_obj:
+                chat_obj = Chat(chat_id=message.chat.id, title=message.chat.title)
+                session.add(chat_obj)
+                await session.commit()
+
+            if not chat_obj.is_active:
+                return
+            chat_group_id = chat_obj.group_id
+
+    # 1. Поиск преподавателя (In-Memory)
+    now_date = get_minsk_now().date()
+    teacher_match = schedule_cache.find_teacher_schedule(message.text, now_date)
     if teacher_match:
         teacher_name, monday, lessons_data = teacher_match
         rich_msg = format_teacher_rich_schedule(
@@ -130,15 +157,15 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg)
         return
 
-    # 2. Пользователь (БД)
-    async with async_session_maker() as session:
-        user = await session.get(User, message.from_user.id)
-
-    if not user or not user.group_id:
-        await message.answer("Сначала пройдите регистрацию: /start")
+    # 2. Парсинг запроса на расписание
+    parsed = parse_schedule_query(message.text)
+    if not parsed:
+        # Если это не запрос расписания (например, обычное общение в беседе) — молчим
         return
 
-    # 3. Группа (In-Memory)
+    await state.clear()
+
+    # 3. Определение целевой группы и подгруппы
     if parsed.get("target_group"):
         t_course = parsed["target_group"]["course"]
         t_num = parsed["target_group"]["group_number"]
@@ -147,18 +174,33 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
             await message.answer(f"⚠️ Группа <b>{t_num}</b> ({t_course} курс) не найдена в базе!")
             return
         target_subgroup = 0
+        user_name = message.chat.title if is_group_chat else "Студент"
+    elif is_group_chat:
+        if not chat_group_id:
+            return
+        group = schedule_cache.get_group_by_id(chat_group_id)
+        target_subgroup = 0
+        user_name = message.chat.title or "Группа"
     else:
+        async with async_session_maker() as session:
+            user = await session.get(User, message.from_user.id)
+
+        if not user or not user.group_id:
+            await message.answer("Сначала пройдите регистрацию: /start")
+            return
         group = schedule_cache.get_group_by_id(user.group_id)
         target_subgroup = user.subgroup or 0
+        user_name = user.first_name or "Студент"
 
     if not group:
-        await message.answer("⚠️ Группа не найдена. Пройдите регистрацию заново: /start")
+        if not is_group_chat:
+            await message.answer("⚠️ Группа не найдена. Пройдите регистрацию заново: /start")
         return
 
-    # 4. Неделя
+    # 4. Расписание на неделю
     if parsed["type"] == "week":
         await send_week_schedule(
-            user_name=user.first_name or "Студент",
+            user_name=user_name,
             group=group,
             target_subgroup=target_subgroup,
             target_date=parsed["date"],
@@ -167,7 +209,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         )
         return
 
-    # 5. День / Слот
+    # 5. Конкретный слот или текущая пара
     monday, lessons = schedule_cache.get_lessons_for_group(group.id, group.course, parsed["date"])
     day_name = DAYS_NAMES[parsed["day_index"]]
     formatted_date = parsed["date"].strftime("%d.%m")
@@ -209,9 +251,9 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         await message.answer(text)
         return
 
-    # 6. Дневная карточка
+    # 6. Дневная карточка расписания
     rich_msg = build_native_rich_schedule(
-        user_name=user.first_name or "Студент",
+        user_name=user_name,
         group_name=group.name,
         user_subgroup=target_subgroup,
         day_index=parsed["day_index"],

@@ -4,6 +4,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.enums import ChatType
 
 from database import async_session_maker
 from models import User
@@ -21,7 +22,8 @@ class RegistrationFSM(StatesGroup):
     entering_nickname = State()
 
 
-@router.message(CommandStart())
+# Регистрация доступна только в личных сообщениях
+@router.message(CommandStart(), F.chat.type == ChatType.PRIVATE)
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     async with async_session_maker() as session:
@@ -85,16 +87,14 @@ async def process_subgroup(callback: CallbackQuery, state: FSMContext):
     
     default_name = callback.from_user.first_name or "Студент"
     sub_title = f"{subgroup}-я подгруппа" if subgroup != 0 else "Вся группа"
-    safe_default = html.escape(default_name)
     
     await callback.message.edit_text(
-    f"Подгруппа: <b>{sub_title}</b>\n\n"
-    f"<b>Шаг 4 из 4:</b> Как к вам обращаться?\n"
-    f"Отправьте имя текстом в чат или нажмите кнопку ниже:",
-    reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-        # В кнопке оставляем raw text:
-        InlineKeyboardButton(text=f"Оставить «{default_name}»", callback_data="use_default_name")
-    ]])
+        f"Подгруппа: <b>{sub_title}</b>\n\n"
+        f"<b>Шаг 4 из 4:</b> Как к вам обращаться?\n"
+        f"Отправьте имя текстом в чат или нажмите кнопку ниже:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text=f"Оставить «{default_name}»", callback_data="use_default_name")
+        ]])
     )
     await state.set_state(RegistrationFSM.entering_nickname)
 

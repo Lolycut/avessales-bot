@@ -7,10 +7,11 @@ from aiogram.enums import ParseMode
 
 from config import BOT_TOKEN, logger, get_minsk_now
 from database import async_session_maker, engine
+from models import Base
 from services.api_client import sync_all_courses, api_client
 from services.schedule_cache import schedule_cache
 from services.notifications import morning_notifications_loop
-from handlers import start, settings, schedule, admin
+from handlers import start, settings, schedule, admin, group_settings
 
 
 async def handle_ping(request: web.Request) -> web.Response:
@@ -53,8 +54,12 @@ async def schedule_auto_sync_task(bot: Bot):
 async def on_startup(bot: Bot):
     logger.info("🔄 Инициализация приложения и загрузка данных...")
     
+    # 0. Автоматическое создание недостающих таблиц (chats)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
     async with async_session_maker() as session:
-        # 1. Попытка синхронизации с bio.bsu.by (изолирована от падений)
+        # 1. Синхронизация с сайтом
         try:
             logger.info("🌐 Запрос свежих данных с bio.bsu.by...")
             await sync_all_courses(session, target_date=get_minsk_now().date(), bot=bot)
@@ -65,7 +70,7 @@ async def on_startup(bot: Bot):
                 f"Бот продолжит работу на существующих данных из PostgreSQL."
             )
 
-        # 2. Обязательная загрузка In-Memory кэша из БД
+        # 2. Загрузка In-Memory кэша
         try:
             await schedule_cache.reload_from_db(session)
             logger.info("🚀 In-Memory кэш успешно загружен из БД и готов к работе!")
@@ -84,6 +89,7 @@ async def main():
 
     # Подключение роутеров в строгом приоритетном порядке
     dp.include_router(admin.router)
+    dp.include_router(group_settings.router)
     dp.include_router(settings.router)
     dp.include_router(start.router)
     dp.include_router(schedule.router)
@@ -102,12 +108,10 @@ async def main():
     finally:
         logger.info("🛑 Остановка бота, завершение фоновых задач и освобождение ресурсов...")
         
-        # Отмена фоновых тасок
         sync_task.cancel()
         notify_task.cancel()
         await asyncio.gather(sync_task, notify_task, return_exceptions=True)
 
-        # Корректное закрытие соединений
         if web_runner:
             await web_runner.cleanup()
         await api_client.close()

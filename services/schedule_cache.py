@@ -1,6 +1,7 @@
 import re
 from collections import defaultdict
 from datetime import date, timedelta
+from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -69,10 +70,18 @@ class ScheduleCache:
     def is_ready(self) -> bool:
         return self._is_ready
 
+    def get_cache_stats(self) -> dict[str, Any]:
+        total_lessons = sum(len(v) for v in self._lessons_by_group_week.values())
+        total_weeks = sum(len(v) for v in self._weeks_by_course.values())
+        return {
+            "is_ready": self._is_ready,
+            "groups_count": len(self._groups_by_id),
+            "weeks_count": total_weeks,
+            "lessons_count": total_lessons,
+            "teachers_count": len(self._teachers_list),
+        }
+
     async def reload_from_db(self, session: AsyncSession) -> None:
-        """
-        Загружает данные из PostgreSQL и формирует индексы в памяти (Atomic Swap).
-        """
         logger.info("🧠 [Cache] Загрузка данных из БД в In-Memory кэш...")
 
         # 1. Загрузка групп

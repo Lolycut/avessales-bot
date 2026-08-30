@@ -7,7 +7,7 @@ from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest, Teleg
 from sqlalchemy import select, func
 
 from database import async_session_maker
-from models import User, Group, Lesson
+from models import User, Group, Lesson, Week, Chat
 from services.schedule_cache import schedule_cache
 from config import ADMIN_IDS, logger
 from services.api_client import sync_all_courses, LAST_SYNC_INFO
@@ -25,16 +25,13 @@ class IsAdminFilter(BaseFilter):
 router.message.filter(IsAdminFilter())
 
 
-def is_admin(user_id: int | None) -> bool:
-    return user_id is not None and user_id in ADMIN_IDS
-
-
 @router.message(Command("admin"))
 @router.message(Command("ahelp"))
 async def cmd_admin_help(message: Message):
     text = (
         "👑 <b>Панель администратора AvesSales</b>\n\n"
-        "• <code>/stats</code> — статистика пользователей и базы\n"
+        "• <code>/stats</code> — системная статистика, БД и In-Memory кэш\n"
+        "• <code>/allstats</code> — срез студентов и бесед по каждому курсу и группе\n"
         "• <code>/sync</code> — принудительная синхронизация с bio.bsu.by\n"
         "• <code>/tech Текст</code> — рассылка оповещения студентам\n"
         "• <code>/logs</code> — скачать файл логов (bot.log)"
@@ -45,6 +42,7 @@ async def cmd_admin_help(message: Message):
 @router.message(Command("stats"))
 async def cmd_admin_stats(message: Message):
     async with async_session_maker() as session:
+        # Пользователи
         total_users = await session.scalar(select(func.count(User.telegram_id)))
         active_notifs = await session.scalar(
             select(func.count(User.telegram_id)).where(User.notifications_enabled == True)
@@ -53,28 +51,115 @@ async def cmd_admin_stats(message: Message):
             select(func.count(User.telegram_id)).where(User.group_id.is_not(None))
         )
 
+        # Беседы (группы)
+        total_chats = await session.scalar(select(func.count(Chat.chat_id)))
+        active_chats = await session.scalar(
+            select(func.count(Chat.chat_id)).where(Chat.is_active == True)
+        )
+        chats_with_notifs = await session.scalar(
+            select(func.count(Chat.chat_id)).where(Chat.notifications_enabled == True)
+        )
+        chats_with_group = await session.scalar(
+            select(func.count(Chat.chat_id)).where(Chat.group_id.is_not(None))
+        )
+
+        # БД
         total_groups = await session.scalar(select(func.count(Group.id)))
         total_lessons = await session.scalar(select(func.count(Lesson.id)))
+        total_weeks = await session.scalar(select(func.count(Week.id)))
+
+    # In-Memory кэш
+    cache_info = schedule_cache.get_cache_stats()
+    cache_ready_str = "✅ Готов к работе" if cache_info["is_ready"] else "❌ Не инициализирован"
 
     sync_time = LAST_SYNC_INFO.get("timestamp") or "Еще не запускалась"
     sync_count = LAST_SYNC_INFO.get("total_lessons_saved", 0)
 
     text = (
-        "📊 <b>Системная статистика:</b>\n\n"
-        "👤 <b>Пользователи:</b>\n"
-        f"• Всего в базе: <b>{total_users or 0}</b>\n"
-        f"• Зарегистрированы: <b>{users_with_group or 0}</b>\n"
-        f"• Утренние уведы (07:45): <b>{active_notifs or 0}</b>\n\n"
+        "📊 <b>Системная статистика и состояние:</b>\n\n"
+        "👤 <b>Студенты (ЛС):</b>\n"
+        f"• Всего пользователей: <b>{total_users or 0}</b>\n"
+        f"• Завершили регистрацию: <b>{users_with_group or 0}</b>\n"
+        f"• Утренние уведомления (07:45): <b>{active_notifs or 0}</b>\n\n"
+        "👥 <b>Беседы / Групповые чаты:</b>\n"
+        f"• Всего подключено бесед: <b>{total_chats or 0}</b>\n"
+        f"• С заданной группой: <b>{chats_with_group or 0}</b>\n"
+        f"• Активные ответы в чате: <b>{active_chats or 0}</b>\n"
+        f"• Утренние уведы в чаты: <b>{chats_with_notifs or 0}</b>\n\n"
+        "🧠 <b>In-Memory Кэш (RAM O(1)):</b>\n"
+        f"• Статус: {cache_ready_str}\n"
+        f"• Групп в кэше: <b>{cache_info['groups_count']}</b>\n"
+        f"• Учебных недель: <b>{cache_info['weeks_count']}</b>\n"
+        f"• Занятий в памяти: <b>{cache_info['lessons_count']}</b>\n"
+        f"• Индекс преподавателей: <b>{cache_info['teachers_count']} чел.</b>\n\n"
         "🗄 <b>База данных (PostgreSQL):</b>\n"
-        f"• Групп факультета: <b>{total_groups or 0}</b>\n"
-        f"• Сохранено занятий: <b>{total_lessons or 0}</b>\n\n"
-        "🌐 <b>Синхронизация с bio.bsu.by:</b>\n"
-        "• Статус: ✅ <b>Успешно</b>\n"
+        f"• Групп: <b>{total_groups or 0}</b> | Недель: <b>{total_weeks or 0}</b> | Пар: <b>{total_lessons or 0}</b>\n\n"
+        "🌐 <b>Синхронизация bio.bsu.by:</b>\n"
         f"• Последний запуск: <code>{sync_time}</code>\n"
-        f"• Обновлено пар за запуск: <b>{sync_count}</b>"
+        f"• Обновлено пар: <b>{sync_count}</b>"
     )
 
     await message.answer(text)
+
+
+@router.message(Command("allstats"))
+async def cmd_admin_allstats(message: Message):
+    async with async_session_maker() as session:
+        # Загружаем все группы
+        groups_res = await session.execute(select(Group).order_by(Group.course.asc(), Group.number.asc()))
+        all_groups = groups_res.scalars().all()
+
+        # Считаем пользователей по группам
+        users_count_res = await session.execute(
+            select(User.group_id, func.count(User.telegram_id))
+            .where(User.group_id.is_not(None))
+            .group_by(User.group_id)
+        )
+        users_by_group = dict(users_count_res.all())
+
+        # Считаем беседы по группам
+        chats_count_res = await session.execute(
+            select(Chat.group_id, func.count(Chat.chat_id))
+            .where(Chat.group_id.is_not(None))
+            .group_by(Chat.group_id)
+        )
+        chats_by_group = dict(chats_count_res.all())
+
+        # Пользователи без группы
+        unreg_users = await session.scalar(
+            select(func.count(User.telegram_id)).where(User.group_id.is_(None))
+        )
+
+    text = "📈 <b>Детальная статистика по курсам и группам:</b>\n\n"
+
+    for course in range(1, 5):
+        course_groups = [g for g in all_groups if g.course == course]
+        course_groups.sort(key=lambda x: int(x.number) if x.number.isdigit() else 999)
+
+        total_course_users = sum(users_by_group.get(g.id, 0) for g in course_groups)
+        total_course_chats = sum(chats_by_group.get(g.id, 0) for g in course_groups)
+
+        text += f"🎓 <b>{course} КУРС</b> (Всего: <b>{total_course_users}</b> студ. | <b>{total_course_chats}</b> бесед)\n"
+        
+        if not course_groups:
+            text += "<i>Группы не загружены</i>\n"
+        else:
+            for g in course_groups:
+                u_cnt = users_by_group.get(g.id, 0)
+                c_cnt = chats_by_group.get(g.id, 0)
+                chat_tag = f" | 💬 {c_cnt} бесед." if c_cnt > 0 else ""
+                text += f"• Гр. <b>{g.number}</b> ({g.name}): <b>{u_cnt}</b> студ.{chat_tag}\n"
+        
+        text += "\n"
+
+    text += f"👤 <b>Студенты без группы / не завершили регистрацию:</b> <b>{unreg_users or 0}</b>"
+
+    # Защита от лимита Telegram в 4096 символов
+    if len(text) > 4000:
+        for chunk in [text[i:i + 4000] for i in range(0, len(text), 4000)]:
+            await message.answer(chunk)
+    else:
+        await message.answer(text)
 
 
 @router.message(Command("sync"))
@@ -104,39 +189,34 @@ async def cmd_tech_broadcast(message: Message, command: CommandObject, bot: Bot)
         return
 
     async with async_session_maker() as session:
-        result = await session.execute(select(User))
-        users = result.scalars().all()
+        users = (await session.execute(select(User))).scalars().all()
+        chats = (await session.execute(select(Chat))).scalars().all()
 
-    total = len(users)
+    all_targets = [u.telegram_id for u in users] + [c.chat_id for c in chats]
+    total = len(all_targets)
     sent = 0
     blocked_count = 0
     bad_request_count = 0
     other_errors = 0
 
-    status_msg = await message.answer(f"⏳ Начинаю рассылку на {total} пользователей...")
+    status_msg = await message.answer(f"⏳ Начинаю рассылку на {total} получателей (пользователи и беседы)...")
 
-    for user in users:
+    for target_id in all_targets:
         try:
             await bot.send_message(
-                chat_id=user.telegram_id, 
+                chat_id=target_id, 
                 text=f"🛠 <b>ТЕХНИЧЕСКОЕ ОПОВЕЩЕНИЕ</b>\n\n{broadcast_text}"
             )
             sent += 1
         except TelegramForbiddenError:
             blocked_count += 1
-            async with async_session_maker() as s:
-                db_user = await s.get(User, user.telegram_id)
-                if db_user:
-                    db_user.notifications_enabled = False
-                    await s.commit()
         except TelegramBadRequest as e:
             bad_request_count += 1
-            logger.warning(f"Ошибка разметки для {user.telegram_id}: {e}")
         except TelegramRetryAfter as e:
             await asyncio.sleep(e.retry_after)
             try:
                 await bot.send_message(
-                    chat_id=user.telegram_id, 
+                    chat_id=target_id, 
                     text=f"🛠 <b>ТЕХНИЧЕСКОЕ ОПОВЕЩЕНИЕ</b>\n\n{broadcast_text}"
                 )
                 sent += 1
@@ -144,15 +224,14 @@ async def cmd_tech_broadcast(message: Message, command: CommandObject, bot: Bot)
                 other_errors += 1
         except Exception as e:
             other_errors += 1
-            logger.error(f"Ошибка отправки пользователю {user.telegram_id}: {e}")
 
         await asyncio.sleep(0.04)
 
     report = (
         f"✅ <b>Рассылка завершена!</b>\n\n"
-        f"👥 Всего в базе: <b>{total}</b>\n"
+        f"👥 Всего адресатов: <b>{total}</b>\n"
         f"📬 Доставлено: <b>{sent}</b>\n"
-        f"🚫 Заблокировали бота: <b>{blocked_count}</b>\n"
+        f"🚫 Заблокировали/кикнули: <b>{blocked_count}</b>\n"
     )
     if bad_request_count > 0:
         report += f"⚠️ Ошибок разметки: <b>{bad_request_count}</b>\n"
