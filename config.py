@@ -21,20 +21,17 @@ DB_PORT = int(os.getenv("DB_PORT", 5432) or 5432)
 DB_NAME = os.getenv("DB_NAME", "bio_schedule_db")
 
 DATABASE_URL = URL.create(
-    drivername="postgresql+asyncpg",
-    username=DB_USER,
-    password=DB_PASS,
-    host=DB_HOST,
-    port=DB_PORT,
-    database=DB_NAME
+    drivername="postgresql+asyncpg", username=DB_USER, password=DB_PASS, host=DB_HOST, port=DB_PORT, database=DB_NAME
 )
 
 API_BASE_URL = "https://bio.bsu.by"
 
 MINSK_TZ = ZoneInfo("Europe/Minsk")
 
+
 def get_minsk_now() -> datetime:
-  return datetime.now(MINSK_TZ).replace(tzinfo=None)
+    return datetime.now(MINSK_TZ).replace(tzinfo=None)
+
 
 # Логирование
 LOG_FORMAT = "%(asctime)s - [%(levelname)s] - %(name)s - %(message)s"

@@ -11,20 +11,9 @@ from models import Group, Week, Lesson
 from services.dto import ScheduleChangeDTO
 from services.notifications import dispatch_schedule_changes
 
-LESSON_TYPES_MAP = {
-    "lecture": "ЛК",
-    "practice": "ПЗ",
-    "lab": "ЛР",
-    "seminar": "СМ",
-    "other": "ДР"
-}
+LESSON_TYPES_MAP = {"lecture": "ЛК", "practice": "ПЗ", "lab": "ЛР", "seminar": "СМ", "other": "ДР"}
 
-LAST_SYNC_INFO: dict[str, Any] = {
-    "timestamp": None,
-    "success": True,
-    "errors": [],
-    "total_lessons_saved": 0
-}
+LAST_SYNC_INFO: dict[str, Any] = {"timestamp": None, "success": True, "errors": [], "total_lessons_saved": 0}
 
 
 def get_current_date() -> date:
@@ -101,7 +90,9 @@ class BioBSUApiClient:
             pass
         return None
 
-    async def fetch_schedule(self, week_id: int, course: int = 2, study_mode: str = "Дневная") -> list[dict[str, Any]] | None:
+    async def fetch_schedule(
+        self, week_id: int, course: int = 2, study_mode: str = "Дневная"
+    ) -> list[dict[str, Any]] | None:
         url = f"{self.base_url}/schedule/api/get-schedule/"
         params = {"study_mode": study_mode, "course": course, "week_id": week_id}
         response = await self._safe_get(url, params=params)
@@ -147,10 +138,7 @@ async def sync_groups_to_db(session: AsyncSession, course: int = 2, study_mode: 
     return saved_count
 
 
-def calculate_schedule_diff(
-    old_lessons: list[Lesson], 
-    new_lessons: list[Lesson]
-) -> dict[int, list[ScheduleChangeDTO]]:
+def calculate_schedule_diff(old_lessons: list[Lesson], new_lessons: list[Lesson]) -> dict[int, list[ScheduleChangeDTO]]:
     changes_by_group: dict[int, list[ScheduleChangeDTO]] = defaultdict(list)
 
     # Группируем по (group_id)
@@ -176,7 +164,7 @@ def calculate_schedule_diff(
 
         all_keys = set(old_dict.keys()) | set(new_dict.keys())
 
-        for (day, slot_id, subgroup) in all_keys:
+        for day, slot_id, subgroup in all_keys:
             old_l = old_dict.get((day, slot_id, subgroup))
             new_l = new_dict.get((day, slot_id, subgroup))
 
@@ -189,7 +177,7 @@ def calculate_schedule_diff(
                         subgroup=subgroup,
                         change_type="removed",
                         subject=old_l.subject,
-                        lesson_type=old_l.lesson_type
+                        lesson_type=old_l.lesson_type,
                     )
                 )
             # 2. Появилась новая пара
@@ -208,7 +196,7 @@ def calculate_schedule_diff(
                         change_type="added",
                         subject=new_l.subject,
                         lesson_type=new_l.lesson_type,
-                        details=details
+                        details=details,
                     )
                 )
             # 3. Пара есть и там и там — проверяем на изменения
@@ -232,7 +220,7 @@ def calculate_schedule_diff(
                             change_type="modified",
                             subject=new_l.subject,
                             lesson_type=new_l.lesson_type,
-                            details=diffs
+                            details=diffs,
                         )
                     )
 
@@ -240,11 +228,11 @@ def calculate_schedule_diff(
 
 
 async def sync_schedule_to_db(
-    session: AsyncSession, 
+    session: AsyncSession,
     valid_group_ids: set[int],
-    target_date: date | None = None, 
-    course: int = 2, 
-    study_mode: str = "Дневная"
+    target_date: date | None = None,
+    course: int = 2,
+    study_mode: str = "Дневная",
 ) -> tuple[int, dict[int, tuple[date, list[ScheduleChangeDTO]]]]:
     if target_date is None:
         target_date = get_current_date()
@@ -261,7 +249,7 @@ async def sync_schedule_to_db(
         await session.commit()
 
     raw_lessons = await api_client.fetch_schedule(week_id=week_id, course=course, study_mode=study_mode)
-    
+
     if raw_lessons is None:
         logger.warning(f"⚠️ Не удалось получить расписание для week_id={week_id}. База не изменена.")
         return 0, {}
@@ -273,7 +261,7 @@ async def sync_schedule_to_db(
         teacher = item.get("teacher")
         room = item.get("room")
         address = item.get("address") or "Курчатова 10"
-        
+
         subgroup_name = item.get("subgroup_name")
         subgroup = int(subgroup_name) if subgroup_name and str(subgroup_name).isdigit() else None
 
@@ -285,18 +273,20 @@ async def sync_schedule_to_db(
             if g_id not in valid_group_ids:
                 continue
 
-            new_lessons.append(Lesson(
-                group_id=g_id,
-                week_id=week_id,
-                day=int(item.get("day", 0)),
-                slot_id=int(item.get("slot_id", 1)),
-                subject=discipline,
-                lesson_type=LESSON_TYPES_MAP.get(raw_type, "ДР"),
-                teacher=teacher,
-                room=room,
-                address=address,
-                subgroup=subgroup
-            ))
+            new_lessons.append(
+                Lesson(
+                    group_id=g_id,
+                    week_id=week_id,
+                    day=int(item.get("day", 0)),
+                    slot_id=int(item.get("slot_id", 1)),
+                    subject=discipline,
+                    lesson_type=LESSON_TYPES_MAP.get(raw_type, "ДР"),
+                    teacher=teacher,
+                    room=room,
+                    address=address,
+                    subgroup=subgroup,
+                )
+            )
 
     # Считываем старые занятия для поиска разницы (Diff)
     old_lessons_res = await session.execute(select(Lesson).where(Lesson.week_id == week_id))
@@ -308,10 +298,10 @@ async def sync_schedule_to_db(
 
     # Удаляем старые записи и сохраняем новые
     await session.execute(delete(Lesson).where(Lesson.week_id == week_id))
-    
+
     if new_lessons:
         session.add_all(new_lessons)
-        
+
     await session.commit()
     logger.info(f"✅ Сохранено {len(new_lessons)} пар ({course} курс, week_id={week_id})")
 
@@ -362,14 +352,16 @@ async def sync_all_courses(session: AsyncSession, target_date: date | None = Non
 
     now_str = get_minsk_now().strftime("%d.%m.%Y %H:%M:%S")
 
-    LAST_SYNC_INFO.update({
-        "timestamp": now_str,
-        "success": True,
-        "errors": [],
-        "total_lessons_saved": total_lessons,
-        "changes_count": len(all_detected_changes),
-        "changed_groups": list(all_detected_changes.keys()),
-    })
+    LAST_SYNC_INFO.update(
+        {
+            "timestamp": now_str,
+            "success": True,
+            "errors": [],
+            "total_lessons_saved": total_lessons,
+            "changes_count": len(all_detected_changes),
+            "changed_groups": list(all_detected_changes.keys()),
+        }
+    )
 
     logger.info(f"Синхронизация завершена в {now_str}. Всего сохранено пар: {total_lessons}")
     return LAST_SYNC_INFO

@@ -47,21 +47,15 @@ async def cmd_admin_stats(message: Message):
         active_notifs = await session.scalar(
             select(func.count(User.telegram_id)).where(User.notifications_enabled == True)
         )
-        users_with_group = await session.scalar(
-            select(func.count(User.telegram_id)).where(User.group_id.is_not(None))
-        )
+        users_with_group = await session.scalar(select(func.count(User.telegram_id)).where(User.group_id.is_not(None)))
 
         # Беседы (группы)
         total_chats = await session.scalar(select(func.count(Chat.chat_id)))
-        active_chats = await session.scalar(
-            select(func.count(Chat.chat_id)).where(Chat.is_active == True)
-        )
+        active_chats = await session.scalar(select(func.count(Chat.chat_id)).where(Chat.is_active == True))
         chats_with_notifs = await session.scalar(
             select(func.count(Chat.chat_id)).where(Chat.notifications_enabled == True)
         )
-        chats_with_group = await session.scalar(
-            select(func.count(Chat.chat_id)).where(Chat.group_id.is_not(None))
-        )
+        chats_with_group = await session.scalar(select(func.count(Chat.chat_id)).where(Chat.group_id.is_not(None)))
 
         # БД
         total_groups = await session.scalar(select(func.count(Group.id)))
@@ -119,16 +113,12 @@ async def cmd_admin_allstats(message: Message):
 
         # Считаем беседы по группам
         chats_count_res = await session.execute(
-            select(Chat.group_id, func.count(Chat.chat_id))
-            .where(Chat.group_id.is_not(None))
-            .group_by(Chat.group_id)
+            select(Chat.group_id, func.count(Chat.chat_id)).where(Chat.group_id.is_not(None)).group_by(Chat.group_id)
         )
         chats_by_group = dict(chats_count_res.all())
 
         # Пользователи без группы
-        unreg_users = await session.scalar(
-            select(func.count(User.telegram_id)).where(User.group_id.is_(None))
-        )
+        unreg_users = await session.scalar(select(func.count(User.telegram_id)).where(User.group_id.is_(None)))
 
     text = "📈 <b>Детальная статистика по курсам и группам:</b>\n\n"
 
@@ -139,8 +129,10 @@ async def cmd_admin_allstats(message: Message):
         total_course_users = sum(users_by_group.get(g.id, 0) for g in course_groups)
         total_course_chats = sum(chats_by_group.get(g.id, 0) for g in course_groups)
 
-        text += f"🎓 <b>{course} КУРС</b> (Всего: <b>{total_course_users}</b> студ. | <b>{total_course_chats}</b> бесед)\n"
-        
+        text += (
+            f"🎓 <b>{course} КУРС</b> (Всего: <b>{total_course_users}</b> студ. | <b>{total_course_chats}</b> бесед)\n"
+        )
+
         if not course_groups:
             text += "<i>Группы не загружены</i>\n"
         else:
@@ -149,14 +141,14 @@ async def cmd_admin_allstats(message: Message):
                 c_cnt = chats_by_group.get(g.id, 0)
                 chat_tag = f" | 💬 {c_cnt} бесед." if c_cnt > 0 else ""
                 text += f"• Гр. <b>{g.number}</b> ({g.name}): <b>{u_cnt}</b> студ.{chat_tag}\n"
-        
+
         text += "\n"
 
     text += f"👤 <b>Студенты без группы / не завершили регистрацию:</b> <b>{unreg_users or 0}</b>"
 
     # Защита от лимита Telegram в 4096 символов
     if len(text) > 4000:
-        for chunk in [text[i:i + 4000] for i in range(0, len(text), 4000)]:
+        for chunk in [text[i : i + 4000] for i in range(0, len(text), 4000)]:
             await message.answer(chunk)
     else:
         await message.answer(text)
@@ -165,7 +157,7 @@ async def cmd_admin_allstats(message: Message):
 @router.message(Command("sync"))
 async def cmd_force_sync(message: Message, bot: Bot):
     msg = await message.answer("⏳ Синхронизирую все 4 курса с bio.bsu.by...")
-    
+
     try:
         async with async_session_maker() as session:
             res = await sync_all_courses(session, bot=bot)
@@ -214,26 +206,20 @@ async def cmd_tech_broadcast(message: Message, command: CommandObject, bot: Bot)
 
     for target_id in all_targets:
         try:
-            await bot.send_message(
-                chat_id=target_id, 
-                text=f"🛠 <b>ТЕХНИЧЕСКОЕ ОПОВЕЩЕНИЕ</b>\n\n{broadcast_text}"
-            )
+            await bot.send_message(chat_id=target_id, text=f"🛠 <b>ТЕХНИЧЕСКОЕ ОПОВЕЩЕНИЕ</b>\n\n{broadcast_text}")
             sent += 1
         except TelegramForbiddenError:
             blocked_count += 1
-        except TelegramBadRequest as e:
+        except TelegramBadRequest:
             bad_request_count += 1
         except TelegramRetryAfter as e:
             await asyncio.sleep(e.retry_after)
             try:
-                await bot.send_message(
-                    chat_id=target_id, 
-                    text=f"🛠 <b>ТЕХНИЧЕСКОЕ ОПОВЕЩЕНИЕ</b>\n\n{broadcast_text}"
-                )
+                await bot.send_message(chat_id=target_id, text=f"🛠 <b>ТЕХНИЧЕСКОЕ ОПОВЕЩЕНИЕ</b>\n\n{broadcast_text}")
                 sent += 1
             except Exception:
                 other_errors += 1
-        except Exception as e:
+        except Exception:
             other_errors += 1
 
         await asyncio.sleep(0.04)
@@ -261,8 +247,7 @@ async def cmd_get_logs(message: Message):
 
     try:
         await message.reply_document(
-            document=FSInputFile(log_path, filename="bot_logs.txt"), 
-            caption="📄 Логи работы бота"
+            document=FSInputFile(log_path, filename="bot_logs.txt"), caption="📄 Логи работы бота"
         )
     except Exception as e:
         await message.reply(f"❌ Не удалось отправить логи: {e}")

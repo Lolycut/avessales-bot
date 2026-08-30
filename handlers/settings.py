@@ -103,10 +103,7 @@ async def toggle_notifications(message: Message, state: FSMContext):
         await session.commit()
 
     status_text = "включены 🔔" if new_status else "выключены 🔕"
-    await message.answer(
-        f"Уведомления успешно <b>{status_text}</b>!", 
-        reply_markup=main_menu_kb(new_status)
-    )
+    await message.answer(f"Уведомления успешно <b>{status_text}</b>!", reply_markup=main_menu_kb(new_status))
 
 
 @router.message(F.text.contains("Настройки"))
@@ -151,7 +148,7 @@ async def callback_save_subgroup(callback: CallbackQuery):
         if user:
             user.subgroup = subgroup_val if subgroup_val != 0 else None
             await session.commit()
-    
+
     sub_title = f"{subgroup_val}-я подгруппа" if subgroup_val != 0 else "Вся группа"
     await callback.message.edit_text(f"✅ Подгруппа успешно изменена на: <b>{sub_title}</b>!")
     await callback.answer()
@@ -181,7 +178,7 @@ async def process_new_nickname(message: Message, state: FSMContext):
     safe_name = html.escape(new_name)
     await message.answer(
         f"✅ Имя успешно изменено на: <b>{safe_name}</b>!",
-        reply_markup=main_menu_kb(user.notifications_enabled if user else True)
+        reply_markup=main_menu_kb(user.notifications_enabled if user else True),
     )
 
 
@@ -194,8 +191,7 @@ async def process_invalid_nickname(message: Message):
 async def callback_restart_registration(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.edit_text(
-        "👋 <b>Перерегистрация</b>\n\n<b>Шаг 1 из 4:</b> Выберите ваш <b>курс</b>:",
-        reply_markup=courses_kb()
+        "👋 <b>Перерегистрация</b>\n\n<b>Шаг 1 из 4:</b> Выберите ваш <b>курс</b>:", reply_markup=courses_kb()
     )
     await state.set_state(RegistrationFSM.choosing_course)
     await callback.answer()

@@ -11,37 +11,27 @@ class Base(DeclarativeBase):
 class Group(Base):
     __tablename__ = "groups"
 
-    id: Mapped[int] = mapped_column(
-        primary_key=True, autoincrement=False, index=True
-    )
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False, index=True)
     study_mode: Mapped[str] = mapped_column(default="Дневная")
     course: Mapped[int] = mapped_column(SmallInteger, index=True)
     number: Mapped[str] = mapped_column(index=True)
     name: Mapped[str] = mapped_column()
 
     users: Mapped[list["User"]] = relationship(back_populates="group")
-    lessons: Mapped[list["Lesson"]] = relationship(
-        back_populates="group", cascade="all, delete-orphan"
-    )
+    lessons: Mapped[list["Lesson"]] = relationship(back_populates="group", cascade="all, delete-orphan")
     chats: Mapped[list["Chat"]] = relationship(back_populates="group")
 
 
 class User(Base):
     __tablename__ = "users"
 
-    telegram_id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, index=True
-    )
+    telegram_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     username: Mapped[str | None] = mapped_column(default=None)
     first_name: Mapped[str] = mapped_column(default="Студент")
-    group_id: Mapped[int | None] = mapped_column(
-        ForeignKey("groups.id", ondelete="SET NULL"), default=None, index=True
-    )
+    group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="SET NULL"), default=None, index=True)
     subgroup: Mapped[int | None] = mapped_column(SmallInteger, default=None)
     notifications_enabled: Mapped[bool] = mapped_column(default=True, index=True)
-    registered_at: Mapped[datetime] = mapped_column(
-        default=get_minsk_now, server_default=func.now()
-    )
+    registered_at: Mapped[datetime] = mapped_column(default=get_minsk_now, server_default=func.now())
 
     group: Mapped["Group | None"] = relationship(back_populates="users")
 
@@ -49,18 +39,12 @@ class User(Base):
 class Chat(Base):
     __tablename__ = "chats"
 
-    chat_id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, index=True
-    )
+    chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     title: Mapped[str | None] = mapped_column(String, default=None)
-    group_id: Mapped[int | None] = mapped_column(
-        ForeignKey("groups.id", ondelete="SET NULL"), default=None, index=True
-    )
+    group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="SET NULL"), default=None, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)  # Чтение/ответы в чате
     notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)  # Утренние уведы в 07:45
-    created_at: Mapped[datetime] = mapped_column(
-        default=get_minsk_now, server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(default=get_minsk_now, server_default=func.now())
 
     group: Mapped["Group | None"] = relationship(back_populates="chats")
 
@@ -68,9 +52,7 @@ class Chat(Base):
 class Week(Base):
     __tablename__ = "weeks"
 
-    id: Mapped[int] = mapped_column(
-        primary_key=True, autoincrement=False, index=True
-    )
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False, index=True)
     study_mode: Mapped[str] = mapped_column(default="Дневная")
     course: Mapped[int] = mapped_column(SmallInteger, index=True)
     start_date: Mapped[date] = mapped_column(index=True)
@@ -78,23 +60,15 @@ class Week(Base):
         default=get_minsk_now, server_default=func.now(), onupdate=get_minsk_now
     )
 
-    lessons: Mapped[list["Lesson"]] = relationship(
-        back_populates="week", cascade="all, delete-orphan"
-    )
+    lessons: Mapped[list["Lesson"]] = relationship(back_populates="week", cascade="all, delete-orphan")
 
 
 class Lesson(Base):
     __tablename__ = "lessons"
 
-    id: Mapped[int] = mapped_column(
-        primary_key=True, autoincrement=True
-    )
-    group_id: Mapped[int] = mapped_column(
-        ForeignKey("groups.id", ondelete="CASCADE"), index=True
-    )
-    week_id: Mapped[int] = mapped_column(
-        ForeignKey("weeks.id", ondelete="CASCADE"), index=True
-    )
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), index=True)
+    week_id: Mapped[int] = mapped_column(ForeignKey("weeks.id", ondelete="CASCADE"), index=True)
     day: Mapped[int] = mapped_column(SmallInteger, index=True)
     slot_id: Mapped[int] = mapped_column(SmallInteger)
     subject: Mapped[str] = mapped_column()

@@ -69,11 +69,11 @@ async def on_bot_added_to_chat(event: ChatMemberUpdated, bot: Bot):
         await session.commit()
 
     welcome_text = (
-        f"👋 <b>Всем привет! Я бот расписания Биофака БГУ</b>\n\n"
-        f"Чтобы я мог присылать расписание и отвечать на ваши вопросы, администратору нужно задать группу:\n\n"
-        f"1️⃣ Нажмите кнопку <b>«⚙️ Настройки беседы»</b> ниже (или отправьте <code>/chat_settings</code>)\n"
-        f"2️⃣ Выберите курс и номер группы\n"
-        f"3️⃣ Задавайте любые вопросы: <i>«что завтра?»</i>, <i>«где 2 пара?»</i> или пишите <b>«Бот»</b> ✨"
+        "👋 <b>Всем привет! Я бот расписания Биофака БГУ</b>\n\n"
+        "Чтобы я мог присылать расписание и отвечать на ваши вопросы, администратору нужно задать группу:\n\n"
+        "1️⃣ Нажмите кнопку <b>«⚙️ Настройки беседы»</b> ниже (или отправьте <code>/chat_settings</code>)\n"
+        "2️⃣ Выберите курс и номер группы\n"
+        "3️⃣ Задавайте любые вопросы: <i>«что завтра?»</i>, <i>«где 2 пара?»</i> или пишите <b>«Бот»</b> ✨"
     )
 
     kb = group_chat_settings_kb(chat.id, is_active=True, notifications_enabled=True)
@@ -83,7 +83,10 @@ async def on_bot_added_to_chat(event: ChatMemberUpdated, bot: Bot):
 # 3. Открытие настроек беседы
 @router.message(Command("chat_settings"))
 @router.message(Command("groupsettings"))
-@router.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}) & F.text.lower().in_({"настройки", "!настройки", "/settings"}))
+@router.message(
+    F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP})
+    & F.text.lower().in_({"настройки", "!настройки", "/settings"})
+)
 async def cmd_chat_settings(message: Message, bot: Bot):
     if message.chat.type not in (ChatType.GROUP, ChatType.SUPERGROUP):
         await message.answer("⚠️ Эта команда предназначена только для бесед (групп)!")
@@ -114,8 +117,7 @@ async def cmd_chat_settings(message: Message, bot: Bot):
     )
 
     await message.answer(
-        text, 
-        reply_markup=group_chat_settings_kb(message.chat.id, chat_obj.is_active, chat_obj.notifications_enabled)
+        text, reply_markup=group_chat_settings_kb(message.chat.id, chat_obj.is_active, chat_obj.notifications_enabled)
     )
 
 
@@ -195,7 +197,7 @@ async def callback_select_course_for_chat(callback: CallbackQuery, bot: Bot):
 
     await callback.message.edit_text(
         f"🎓 Выбран: <b>{course} курс</b>\nВыберите группу вашей беседы:",
-        reply_markup=group_chat_groups_kb(chat_id, groups)
+        reply_markup=group_chat_groups_kb(chat_id, groups),
     )
     await callback.answer()
 
@@ -227,7 +229,7 @@ async def callback_save_group_for_chat(callback: CallbackQuery, bot: Bot):
     await callback.message.edit_text(
         f"✅ <b>Группа беседы успешно установлена:</b> <code>{grp_name}</code>\n\n"
         f"Теперь любой участник может писать: <i>«что завтра?»</i>, <i>«какая 1 пара в пн?»</i>, <i>«расписание на неделю»</i> ✨",
-        reply_markup=group_chat_settings_kb(chat_id, is_act, notif)
+        reply_markup=group_chat_settings_kb(chat_id, is_act, notif),
     )
     await callback.answer("Группа успешно сохранена!")
 
