@@ -45,3 +45,14 @@ class TeacherSlotDTO:
     subgroup: int | None
     groups: list[str] = field(default_factory=list)
     groups_display: str = ""
+
+
+@dataclass(slots=True)
+class ScheduleChangeDTO:
+    day: int
+    slot_id: int
+    subgroup: int | None
+    change_type: str  # 'modified', 'added', 'removed'
+    subject: str
+    lesson_type: str
+    details: list[str] = field(default_factory=list)

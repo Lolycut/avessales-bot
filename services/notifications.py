@@ -6,8 +6,9 @@ from aiogram import Bot
 from config import logger, get_minsk_now
 from database import async_session_maker
 from models import User, Chat
+from services.dto import ScheduleChangeDTO
 from services.schedule_cache import schedule_cache
-from services.formatter import build_native_rich_schedule
+from services.formatter import build_native_rich_schedule, build_schedule_changes_rich_message
 
 NOTIFY_HOUR = 7
 NOTIFY_MINUTE = 45
@@ -30,7 +31,6 @@ async def send_to_recipient(
 
         actual_monday, lessons = schedule_cache.get_lessons_for_group(group.id, group.course, today)
 
-        # Фильтруем пары на сегодня с учетом подгруппы
         today_lessons = [
             l for l in lessons 
             if l.day == day_index and (l.subgroup is None or l.subgroup == subgroup or subgroup == 0)
@@ -50,7 +50,7 @@ async def send_to_recipient(
 
         try:
             await bot.send_rich_message(chat_id=target_id, rich_message=rich_card)
-            await asyncio.sleep(0.04)  # Равномерный RPS (до 25 сообщений/сек)
+            await asyncio.sleep(0.04)
             return True
         except Exception as e:
             logger.warning(f"Ошибка отправки уведомления получателю {target_id}: {e}")
@@ -60,19 +60,17 @@ async def send_to_recipient(
 async def send_morning_schedule(bot: Bot):
     today = get_minsk_now().date()
     day_index = today.weekday()
-    if day_index > 5:  # В воскресенье не рассылаем
+    if day_index > 5:
         return
 
     logger.info("🌅 Запуск утренней рассылки расписания (07:45 Минск)...")
     
     async with async_session_maker() as session:
-        # Студенты в ЛС
         users_res = await session.execute(
             select(User).where(User.notifications_enabled == True, User.group_id.is_not(None))
         )
         users = users_res.scalars().all()
 
-        # Беседы групп
         chats_res = await session.execute(
             select(Chat).where(Chat.notifications_enabled == True, Chat.group_id.is_not(None))
         )
@@ -104,7 +102,7 @@ async def send_morning_schedule(bot: Bot):
                 bot=bot,
                 target_id=c.chat_id,
                 group_id=c.group_id,
-                subgroup=0,  # Для беседы отправляем полную группу
+                subgroup=0,
                 name=c.title or "Группа",
                 today=today,
                 day_index=day_index,
@@ -115,6 +113,54 @@ async def send_morning_schedule(bot: Bot):
     results = await asyncio.gather(*tasks, return_exceptions=True)
     sent_count = sum(1 for r in results if r is True)
     logger.info(f"✅ Утренняя рассылка завершена. Доставлено: {sent_count}/{len(tasks)}")
+
+
+async def dispatch_schedule_changes(
+    bot: Bot, 
+    all_changes: dict[int, tuple[date, list[ScheduleChangeDTO]]]
+):
+    """
+    Рассылает экстренные уведомления об изменениях в расписании нужным группам и студентам.
+    """
+    if not all_changes:
+        return
+
+    logger.info(f"⚡ Обнаружены изменения расписания для {len(all_changes)} групп! Начинаю адресную рассылку...")
+    semaphore = asyncio.Semaphore(25)
+
+    for group_id, (monday, changes) in all_changes.items():
+        group = schedule_cache.get_group_by_id(group_id)
+        if not group or not changes:
+            continue
+
+        rich_msg = build_schedule_changes_rich_message(
+            group_name=f"{group.course}-{group.number} ({group.name})",
+            start_monday=monday,
+            changes=changes
+        )
+
+        async with async_session_maker() as session:
+            users_res = await session.execute(
+                select(User).where(User.group_id == group_id, User.notifications_enabled == True)
+            )
+            target_users = users_res.scalars().all()
+
+            chats_res = await session.execute(
+                select(Chat).where(Chat.group_id == group_id, Chat.notifications_enabled == True)
+            )
+            target_chats = chats_res.scalars().all()
+
+        recipients = [u.telegram_id for u in target_users] + [c.chat_id for c in target_chats]
+
+        for chat_id in recipients:
+            async with semaphore:
+                try:
+                    await bot.send_rich_message(chat_id=chat_id, rich_message=rich_msg)
+                    await asyncio.sleep(0.04)
+                except Exception as e:
+                    logger.warning(f"Не удалось доставить изменение в расписании в {chat_id}: {e}")
+
+    logger.info("✅ Оповещение об изменениях в расписании успешно разослано.")
 
 
 async def morning_notifications_loop(bot: Bot):

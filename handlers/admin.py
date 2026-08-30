@@ -172,9 +172,20 @@ async def cmd_force_sync(message: Message, bot: Bot):
             await schedule_cache.reload_from_db(session)
 
         saved = res.get("total_lessons_saved", 0)
+        changes_count = res.get("changes_count", 0)
+
+        if changes_count > 0:
+            changes_info = (
+                f"\n⚡ <b>Обнаружены изменения:</b> в <b>{changes_count}</b> группах.\n"
+                f"📢 <i>Экстренные уведомления с карточками изменений автоматически отправлены студентам и в беседы!</i>"
+            )
+        else:
+            changes_info = "\n✨ <i>Изменений в сетке расписания не обнаружено.</i>"
+
         await msg.edit_text(
             f"✅ <b>Синхронизация успешно завершена!</b>\n\n"
             f"📚 Всего обновлено пар в базе и кэше: <b>{saved}</b>"
+            f"{changes_info}"
         )
     except Exception as e:
         logger.error(f"Ошибка команды /sync: {e}")

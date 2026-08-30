@@ -1,6 +1,6 @@
 from datetime import date, timedelta
-
-from services.dto import LessonDTO, TeacherSlotDTO
+from collections import defaultdict
+from services.dto import LessonDTO, TeacherSlotDTO, ScheduleChangeDTO
 from aiogram.types import (
     InputRichMessage,
     InputRichBlockSectionHeading,
@@ -286,5 +286,66 @@ def format_teacher_rich_schedule(
                 is_striped=True,
             )
         )
+
+    return InputRichMessage(blocks=blocks)
+
+
+def build_schedule_changes_rich_message(
+    group_name: str,
+    start_monday: date,
+    changes: list[ScheduleChangeDTO],
+) -> InputRichMessage:
+    end_saturday = start_monday + timedelta(days=5)
+
+    blocks = [
+        InputRichBlockSectionHeading(
+            text=RichTextBold(
+                text=f"⚠️ ИЗМЕНЕНИЯ В РАСПИСАНИИ!\n👥 {group_name} • {start_monday.strftime('%d.%m')} — {end_saturday.strftime('%d.%m')}"
+            ),
+            size=2,
+        ),
+        InputRichBlockParagraph(
+            text=RichTextItalic(text="Сайт bio.bsu.by обновил данные для вашей группы:")
+        )
+    ]
+
+    # Группируем изменения по дням недели
+    by_days = defaultdict(list)
+    for ch in changes:
+        by_days[ch.day].append(ch)
+
+    for day_i in sorted(by_days.keys()):
+        day_date = start_monday + timedelta(days=day_i)
+        day_changes = by_days[day_i]
+        day_changes.sort(key=lambda x: x.slot_id)
+
+        blocks.append(InputRichBlockDivider())
+        blocks.append(
+            InputRichBlockParagraph(
+                text=RichTextBold(text=f"📍 {DAYS_NAMES[day_i]} ({day_date.strftime('%d.%m')})")
+            )
+        )
+
+        for ch in day_changes:
+            slot_info = TIMESLOTS.get(ch.slot_id, {"order": str(ch.slot_id), "time": "--:--"})
+            sub_str = f" [п/г {ch.subgroup}]" if ch.subgroup else ""
+
+            if ch.change_type == "modified":
+                icon = "🔄"
+                title = f"{icon} <b>{slot_info['order']} пара ({slot_info['time']}):</b> {ch.subject} [{ch.lesson_type}]{sub_str}"
+                details_text = "\n".join([f"  • {d}" for d in ch.details])
+                item_text = f"{title}\n{details_text}"
+            elif ch.change_type == "removed":
+                icon = "❌"
+                item_text = f"{icon} <b>{slot_info['order']} пара ({slot_info['time']}):</b> {ch.subject} [{ch.lesson_type}]{sub_str} — <b>ОТМЕНЕНА</b>"
+            else:
+                icon = "➕"
+                title = f"{icon} <b>{slot_info['order']} пара ({slot_info['time']}):</b> {ch.subject} [{ch.lesson_type}]{sub_str} — <b>ДОБАВЛЕНА</b>"
+                details_text = "\n".join([f"  • {d}" for d in ch.details]) if ch.details else ""
+                item_text = f"{title}\n{details_text}" if details_text else title
+
+            blocks.append(
+                InputRichBlockParagraph(text=item_text)
+            )
 
     return InputRichMessage(blocks=blocks)

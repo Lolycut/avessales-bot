@@ -42,6 +42,7 @@ async def schedule_auto_sync_task(bot: Bot):
             await asyncio.sleep(2 * 3600)
             logger.info("⏰ Запуск периодического автообновления расписания...")
             async with async_session_maker() as session:
+                # В фоновой задаче передаем bot=bot для автоматической рассылки найденных изменений
                 await sync_all_courses(session, target_date=get_minsk_now().date(), bot=bot)
                 await schedule_cache.reload_from_db(session)
             logger.info("✅ Фоновое расписание успешно обновлено в БД и кэше!")
@@ -54,15 +55,15 @@ async def schedule_auto_sync_task(bot: Bot):
 async def on_startup(bot: Bot):
     logger.info("🔄 Инициализация приложения и загрузка данных...")
     
-    # 0. Автоматическое создание недостающих таблиц (chats)
+    # 0. Автоматическое создание недостающих таблиц (например, chats)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
     async with async_session_maker() as session:
-        # 1. Синхронизация с сайтом
+        # 1. Синхронизация с сайтом при старте (bot=None, чтобы не рассылать спам при обычном перезапуске)
         try:
             logger.info("🌐 Запрос свежих данных с bio.bsu.by...")
-            await sync_all_courses(session, target_date=get_minsk_now().date(), bot=bot)
+            await sync_all_courses(session, target_date=get_minsk_now().date(), bot=None)
             logger.info("✅ Первичная синхронизация с сайтом успешно завершена.")
         except Exception as e:
             logger.warning(
@@ -104,6 +105,7 @@ async def main():
 
     logger.info("Бот успешно запущен в режиме Polling...")
     try:
+        await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         logger.info("🛑 Остановка бота, завершение фоновых задач и освобождение ресурсов...")
