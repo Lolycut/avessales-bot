@@ -1,7 +1,3 @@
-Here is the complete, production-ready `README.md` written in English, specifically tailored for your repository **`avessales-bot`** and bot **`AvesSales`**.
-
----
-
 # 🦅 AvesSales (`avessales-bot`)
 
 <p align="center">
