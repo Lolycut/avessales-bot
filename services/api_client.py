@@ -1,7 +1,7 @@
 import asyncio
 import httpx
 from datetime import date, timedelta
-from typing import List, Dict, Any, Optional
+from typing import Any
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,8 +16,7 @@ LESSON_TYPES_MAP = {
     "other": "ДР"
 }
 
-# Глобальный статус синхронизации для команды /stats
-LAST_SYNC_INFO: Dict[str, Any] = {
+LAST_SYNC_INFO: dict[str, Any] = {
     "timestamp": None,
     "success": True,
     "errors": [],
@@ -30,7 +29,7 @@ def get_current_date() -> date:
 
 
 class BioBSUApiClient:
-    def __init__(self, base_url: str = API_BASE_URL):
+    def __init__(self, base_url: str = API_BASE_URL) -> None:
         self.base_url = base_url.rstrip("/")
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -40,7 +39,7 @@ class BioBSUApiClient:
             "Origin": self.base_url,
             "X-Requested-With": "XMLHttpRequest",
         }
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     async def get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -51,11 +50,11 @@ class BioBSUApiClient:
             )
         return self._client
 
-    async def close(self):
+    async def close(self) -> None:
         if self._client and not self._client.is_closed:
             await self._client.aclose()
 
-    async def _safe_get(self, url: str, params: Optional[Dict[str, Any]] = None) -> Optional[httpx.Response]:
+    async def _safe_get(self, url: str, params: dict[str, Any] | None = None) -> httpx.Response | None:
         client = await self.get_client()
         try:
             response = await client.get(url, params=params)
@@ -66,7 +65,7 @@ class BioBSUApiClient:
             logger.error(f"Ошибка запроса к {url}: {e}")
             return None
 
-    async def fetch_groups(self, course: int = 2, study_mode: str = "Дневная") -> List[Dict[str, Any]]:
+    async def fetch_groups(self, course: int = 2, study_mode: str = "Дневная") -> list[dict[str, Any]]:
         url = f"{self.base_url}/schedule/api/get-groups/"
         params = {"study_mode": study_mode, "course": course}
         response = await self._safe_get(url, params=params)
@@ -80,7 +79,7 @@ class BioBSUApiClient:
             pass
         return []
 
-    async def fetch_week_for_date(self, target_date: date, course: int = 2, study_mode: str = "Дневная") -> Optional[int]:
+    async def fetch_week_for_date(self, target_date: date, course: int = 2, study_mode: str = "Дневная") -> int | None:
         url = f"{self.base_url}/schedule/api/get-week-for-date/"
         monday = target_date - timedelta(days=target_date.weekday())
         params = {"study_mode": study_mode, "course": course, "date": monday.strftime("%Y-%m-%d")}
@@ -99,19 +98,19 @@ class BioBSUApiClient:
             pass
         return None
 
-    async def fetch_schedule(self, week_id: int, course: int = 2, study_mode: str = "Дневная") -> List[Dict[str, Any]]:
+    async def fetch_schedule(self, week_id: int, course: int = 2, study_mode: str = "Дневная") -> list[dict[str, Any]] | None:
         url = f"{self.base_url}/schedule/api/get-schedule/"
         params = {"study_mode": study_mode, "course": course, "week_id": week_id}
         response = await self._safe_get(url, params=params)
         if not response:
-            return []
+            return None
         try:
             data = response.json()
             if isinstance(data, dict) and "lessons" in data:
                 return data["lessons"]
         except Exception:
             pass
-        return []
+        return None
 
 
 api_client = BioBSUApiClient()
@@ -128,7 +127,7 @@ async def sync_groups_to_db(session: AsyncSession, course: int = 2, study_mode: 
         if not group_id:
             continue
         name = g_data.get("name", "")
-        number = str(g_data.get("number") or "")
+        number = str(g_data.get("number") or "").strip()
 
         existing = await session.get(Group, group_id)
         if existing:
@@ -145,7 +144,13 @@ async def sync_groups_to_db(session: AsyncSession, course: int = 2, study_mode: 
     return saved_count
 
 
-async def sync_schedule_to_db(session: AsyncSession, target_date: Optional[date] = None, course: int = 2, study_mode: str = "Дневная") -> int:
+async def sync_schedule_to_db(
+    session: AsyncSession, 
+    valid_group_ids: set[int],
+    target_date: date | None = None, 
+    course: int = 2, 
+    study_mode: str = "Дневная"
+) -> int:
     if target_date is None:
         target_date = get_current_date()
 
@@ -161,8 +166,11 @@ async def sync_schedule_to_db(session: AsyncSession, target_date: Optional[date]
         await session.commit()
 
     raw_lessons = await api_client.fetch_schedule(week_id=week_id, course=course, study_mode=study_mode)
-    if not raw_lessons:
-        return 0  # Спокойно пропускаем пустые каникулярные недели
+    
+    # Защита от перезаписи при сбое API/сети
+    if raw_lessons is None:
+        logger.warning(f"⚠️ Не удалось получить расписание для week_id={week_id} (ошибка API/сети). База не изменена.")
+        return 0
 
     new_lessons = []
     for item in raw_lessons:
@@ -180,6 +188,10 @@ async def sync_schedule_to_db(session: AsyncSession, target_date: Optional[date]
             group_ids = [item["group_id"]]
 
         for g_id in group_ids:
+            # Защита от ForeignKeyViolationError: вставляем только валидные группы
+            if g_id not in valid_group_ids:
+                continue
+
             new_lessons.append(Lesson(
                 group_id=g_id,
                 week_id=week_id,
@@ -193,39 +205,53 @@ async def sync_schedule_to_db(session: AsyncSession, target_date: Optional[date]
                 subgroup=subgroup
             ))
 
+    # Удаляем старые записи для этой недели (корректно очистит при каникулах)
+    await session.execute(delete(Lesson).where(Lesson.week_id == week_id))
+    
     if new_lessons:
-        await session.execute(delete(Lesson).where(Lesson.week_id == week_id))
         session.add_all(new_lessons)
-        await session.commit()
-        logger.info(f"✅ Сохранено {len(new_lessons)} пар ({course} курс, week_id={week_id})")
+        
+    await session.commit()
+    logger.info(f"✅ Сохранено {len(new_lessons)} пар ({course} курс, week_id={week_id})")
 
     return len(new_lessons)
 
 
-async def sync_all_courses(session: AsyncSession, target_date: Optional[date] = None, bot=None) -> Dict[str, Any]:
+async def sync_all_courses(session: AsyncSession, target_date: date | None = None, bot=None) -> dict[str, Any]:
     if target_date is None:
         target_date = get_current_date()
 
     next_week = target_date + timedelta(days=7)
     after_next_week = target_date + timedelta(days=14)
 
-    total_lessons = 0
+    # 1 ЭТАП: Сначала синхронизируем группы ВСЕХ курсов
     for c in range(1, 5):
         try:
             await sync_groups_to_db(session, course=c)
-            await asyncio.sleep(0.1)
-            total_lessons += await sync_schedule_to_db(session, target_date=target_date, course=c)
-            await asyncio.sleep(0.1)
-            total_lessons += await sync_schedule_to_db(session, target_date=next_week, course=c)
-            await asyncio.sleep(0.1)
-            total_lessons += await sync_schedule_to_db(session, target_date=after_next_week, course=c)
+            await asyncio.sleep(0.05)
         except Exception as e:
-            logger.error(f"Ошибка синхронизации курса {c}: {e}")
+            await session.rollback()
+            logger.error(f"Ошибка синхронизации групп {c} курса: {e}")
 
-    # Точное Минское время UTC+3
+    # Получаем все актуальные ID групп в базе
+    groups_res = await session.execute(select(Group.id))
+    valid_group_ids = set(groups_res.scalars().all())
+
+    # 2 ЭТАП: Синхронизируем расписание по всем курсам
+    total_lessons = 0
+    for c in range(1, 5):
+        try:
+            total_lessons += await sync_schedule_to_db(session, valid_group_ids, target_date=target_date, course=c)
+            await asyncio.sleep(0.05)
+            total_lessons += await sync_schedule_to_db(session, valid_group_ids, target_date=next_week, course=c)
+            await asyncio.sleep(0.05)
+            total_lessons += await sync_schedule_to_db(session, valid_group_ids, target_date=after_next_week, course=c)
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Ошибка синхронизации расписания {c} курса: {e}")
+
     now_str = get_minsk_now().strftime("%d.%m.%Y %H:%M:%S")
 
-    # In-place обновление словаря, чтобы handlers/admin.py сразу увидел изменения
     LAST_SYNC_INFO.update({
         "timestamp": now_str,
         "success": True,

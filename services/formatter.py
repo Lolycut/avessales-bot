@@ -1,7 +1,6 @@
 from datetime import date, timedelta
-from typing import List, Optional, Dict, Any
 
-from models import Lesson
+from services.dto import LessonDTO, TeacherSlotDTO
 from aiogram.types import (
     InputRichMessage,
     InputRichBlockSectionHeading,
@@ -35,7 +34,7 @@ DAYS_NAMES = [
 ]
 
 
-def short_name(full_name: Optional[str]) -> str:
+def short_name(full_name: str | None) -> str:
     if not full_name:
         return "—"
     parts = full_name.strip().split()
@@ -52,7 +51,7 @@ def build_native_rich_schedule(
     user_subgroup: int,
     day_index: int,
     target_date: date,
-    lessons: List[Lesson],
+    lessons: list[LessonDTO],
 ) -> InputRichMessage:
     day_name = DAYS_NAMES[day_index]
     formatted_date = target_date.strftime("%d.%m.%Y")
@@ -126,7 +125,7 @@ def format_full_week_rich_message(
     group_name: str,
     user_subgroup: int,
     start_monday: date,
-    lessons: List[Lesson],
+    lessons: list[LessonDTO],
 ) -> InputRichMessage:
     sub_title = f"{user_subgroup} п/г" if user_subgroup else "Вся группа"
     end_saturday = start_monday + timedelta(days=5)
@@ -164,7 +163,6 @@ def format_full_week_rich_message(
                 text=RichTextBold(text=day_heading)
             )
         )
-
 
         rows = [[
             RichBlockTableCell(text=RichTextBold(text="Пара"), is_header=True, align="center", valign="middle"),
@@ -206,11 +204,11 @@ def format_full_week_rich_message(
 def format_teacher_rich_schedule(
     teacher_full_name: str,
     start_monday: date,
-    lessons_data: List[Dict[str, Any]],
+    lessons_data: list[TeacherSlotDTO],
 ) -> InputRichMessage:
     end_saturday = start_monday + timedelta(days=5)
 
-    unique_subjects = sorted(list({item["subject"] for item in lessons_data}))
+    unique_subjects = sorted(list({item.subject for item in lessons_data}))
     subjects_text = ", ".join(unique_subjects) if unique_subjects else "Не указаны"
 
     blocks = [
@@ -235,8 +233,8 @@ def format_teacher_rich_schedule(
 
     for day_i in range(6):
         day_date = start_monday + timedelta(days=day_i)
-        day_lessons = [item for item in lessons_data if item["day"] == day_i]
-        day_lessons.sort(key=lambda x: x["slot_id"])
+        day_lessons = [item for item in lessons_data if item.day == day_i]
+        day_lessons.sort(key=lambda x: x.slot_id)
 
         blocks.append(InputRichBlockDivider())
         day_heading = f"▫️ {DAYS_NAMES[day_i]} ({day_date.strftime('%d.%m')})"
@@ -263,22 +261,22 @@ def format_teacher_rich_schedule(
         ]]
 
         for l in day_lessons:
-            slot = TIMESLOTS.get(l["slot_id"], {"order": str(l["slot_id"]), "time": "--:--"})
+            slot = TIMESLOTS.get(l.slot_id, {"order": str(l.slot_id), "time": "--:--"})
             start_time = slot["time"].split(" - ")[0]
 
-            room_str = l["room"] or "—"
-            if l["address"] and "курчатова" not in l["address"].lower():
+            room_str = l.room or "—"
+            if l.address and "курчатова" not in l.address.lower():
                 room_str = f"{room_str} ⚠️"
 
-            sub_tag = f" (п/г {l['subgroup']})" if l["subgroup"] else ""
-            type_str = f" [{l['lesson_type']}]" if l["lesson_type"] else ""
-            groups_str = l["groups_display"]
+            sub_tag = f" (п/г {l.subgroup})" if l.subgroup else ""
+            type_str = f" [{l.lesson_type}]" if l.lesson_type else ""
+            groups_str = l.groups_display
 
             rows.append([
                 RichBlockTableCell(text=f"{slot['order']} ({start_time})", align="center", valign="middle"),
                 RichBlockTableCell(text=RichTextBold(text=room_str), align="center", valign="middle"),
                 RichBlockTableCell(text=groups_str, align="center", valign="middle"),
-                RichBlockTableCell(text=f"{l['subject']}{type_str}{sub_tag}", align="left", valign="middle"),
+                RichBlockTableCell(text=f"{l.subject}{type_str}{sub_tag}", align="left", valign="middle"),
             ])
 
         blocks.append(

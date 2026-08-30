@@ -6,7 +6,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from database import async_session_maker
-from models import User, Group
+from models import User
+from services.schedule_cache import schedule_cache
 from keyboards import main_menu_kb, settings_inline_kb, settings_subgroups_kb, courses_kb
 from handlers.start import RegistrationFSM
 
@@ -61,6 +62,7 @@ async def toggle_notifications(message: Message, state: FSMContext):
     async with async_session_maker() as session:
         user = await session.get(User, message.from_user.id)
         if not user:
+            await message.answer("Сначала пройдите регистрацию: /start")
             return
         user.notifications_enabled = not user.notifications_enabled
         new_status = user.notifications_enabled
@@ -81,9 +83,10 @@ async def open_settings(message: Message, state: FSMContext):
         if not user:
             await message.answer("Сначала пройдите регистрацию: /start")
             return
-        group = await session.get(Group, user.group_id) if user.group_id else None
-        group_name = group.name if group else "Не выбрана"
-        course_str = f"{group.course} курс" if group else "—"
+
+    group = schedule_cache.get_group_by_id(user.group_id) if user.group_id else None
+    group_name = group.name if group else "Не выбрана"
+    course_str = f"{group.course} курс" if group else "—"
 
     safe_name = html.escape(user.first_name or "Студент")
     safe_group = html.escape(group_name)
@@ -127,7 +130,7 @@ async def callback_change_nickname(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@router.message(SettingsFSM.changing_nickname)
+@router.message(SettingsFSM.changing_nickname, F.text)
 async def process_new_nickname(message: Message, state: FSMContext):
     new_name = message.text.strip()
     if not new_name:
@@ -146,6 +149,11 @@ async def process_new_nickname(message: Message, state: FSMContext):
         f"✅ Имя успешно изменено на: <b>{safe_name}</b>!",
         reply_markup=main_menu_kb(user.notifications_enabled if user else True)
     )
+
+
+@router.message(SettingsFSM.changing_nickname)
+async def process_invalid_nickname(message: Message):
+    await message.answer("⚠️ Пожалуйста, отправьте новое имя обычным текстовым сообщением:")
 
 
 @router.callback_query(F.data == "restart_reg")

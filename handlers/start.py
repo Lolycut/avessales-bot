@@ -1,13 +1,15 @@
+import html
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from sqlalchemy import select
 
 from database import async_session_maker
-from models import User, Group
+from models import User
+from services.schedule_cache import schedule_cache
 from keyboards import main_menu_kb, courses_kb, reg_subgroups_kb
+from config import get_minsk_now
 
 router = Router()
 
@@ -25,8 +27,9 @@ async def cmd_start(message: Message, state: FSMContext):
     async with async_session_maker() as session:
         user = await session.get(User, message.from_user.id)
         if user and user.group_id:
+            safe_name = html.escape(user.first_name or "Студент")
             await message.answer(
-                f"Рад снова видеть, <b>{user.first_name}</b>! Что интересует по расписанию?",
+                f"Рад снова видеть, <b>{safe_name}</b>! Что интересует по расписанию?",
                 reply_markup=main_menu_kb(user.notifications_enabled)
             )
             return
@@ -44,10 +47,7 @@ async def process_course(callback: CallbackQuery, state: FSMContext):
     course = int(callback.data.split("_")[2])
     await state.update_data(course=course)
 
-    async with async_session_maker() as session:
-        result = await session.execute(select(Group).where(Group.course == course))
-        groups = result.scalars().all()
-        groups.sort(key=lambda g: int(g.number) if g.number.isdigit() else 999)
+    groups = schedule_cache.get_all_groups_for_course(course)
 
     buttons = [
         [InlineKeyboardButton(text=f"Гр. {g.number} • {g.name}", callback_data=f"sel_group_{g.id}")]
@@ -67,8 +67,7 @@ async def process_group(callback: CallbackQuery, state: FSMContext):
     group_id = int(callback.data.split("_")[2])
     await state.update_data(group_id=group_id)
     
-    async with async_session_maker() as session:
-        group = await session.get(Group, group_id)
+    group = schedule_cache.get_group_by_id(group_id)
     group_number = group.number if group else "?"
 
     await callback.message.edit_text(
@@ -86,14 +85,16 @@ async def process_subgroup(callback: CallbackQuery, state: FSMContext):
     
     default_name = callback.from_user.first_name or "Студент"
     sub_title = f"{subgroup}-я подгруппа" if subgroup != 0 else "Вся группа"
+    safe_default = html.escape(default_name)
     
     await callback.message.edit_text(
-        f"Подгруппа: <b>{sub_title}</b>\n\n"
-        f"<b>Шаг 4 из 4:</b> Как к вам обращаться?\n"
-        f"Отправьте имя текстом в чат или нажмите кнопку ниже:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text=f"Оставить «{default_name}»", callback_data="use_default_name")
-        ]])
+    f"Подгруппа: <b>{sub_title}</b>\n\n"
+    f"<b>Шаг 4 из 4:</b> Как к вам обращаться?\n"
+    f"Отправьте имя текстом в чат или нажмите кнопку ниже:",
+    reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+        # В кнопке оставляем raw text:
+        InlineKeyboardButton(text=f"Оставить «{default_name}»", callback_data="use_default_name")
+    ]])
     )
     await state.set_state(RegistrationFSM.entering_nickname)
 
@@ -105,18 +106,23 @@ async def process_default_nickname(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@router.message(RegistrationFSM.entering_nickname)
+@router.message(RegistrationFSM.entering_nickname, F.text)
 async def process_custom_nickname(message: Message, state: FSMContext):
     name = message.text.strip() or (message.from_user.first_name or "Студент")
     await save_user_registration(message.from_user.id, message.from_user.username, name, state, message)
 
 
-async def save_user_registration(user_id: int, username: str, nickname: str, state: FSMContext, target_msg: Message):
+@router.message(RegistrationFSM.entering_nickname)
+async def process_invalid_nickname(message: Message):
+    await message.answer("⚠️ Пожалуйста, отправьте ваше имя обычным текстовым сообщением:")
+
+
+async def save_user_registration(user_id: int, username: str | None, nickname: str, state: FSMContext, target_msg: Message):
     data = await state.get_data()
     async with async_session_maker() as session:
         user = await session.get(User, user_id)
         if not user:
-            user = User(telegram_id=user_id)
+            user = User(telegram_id=user_id, registered_at=get_minsk_now())
             session.add(user)
             
         user.username = username
@@ -132,7 +138,8 @@ async def save_user_registration(user_id: int, username: str, nickname: str, sta
         await session.commit()
 
     await state.clear()
+    safe_nick = html.escape(nickname)
     await target_msg.answer(
-        f"🎉 <b>Отлично, {nickname}! Регистрация завершена.</b>",
+        f"🎉 <b>Отлично, {safe_nick}! Регистрация завершена!</b>",
         reply_markup=main_menu_kb(True)
     )

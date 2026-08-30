@@ -1,8 +1,6 @@
 import asyncio
 import os
-from datetime import datetime
-from typing import Optional
-from aiogram import Router, Bot, F
+from aiogram import Router, Bot
 from aiogram.filters import Command, CommandObject, BaseFilter
 from aiogram.types import Message, FSInputFile
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest, TelegramRetryAfter
@@ -10,6 +8,7 @@ from sqlalchemy import select, func
 
 from database import async_session_maker
 from models import User, Group, Lesson
+from services.schedule_cache import schedule_cache
 from config import ADMIN_IDS, logger
 from services.api_client import sync_all_courses, LAST_SYNC_INFO
 
@@ -26,7 +25,7 @@ class IsAdminFilter(BaseFilter):
 router.message.filter(IsAdminFilter())
 
 
-def is_admin(user_id: Optional[int]) -> bool:
+def is_admin(user_id: int | None) -> bool:
     return user_id is not None and user_id in ADMIN_IDS
 
 
@@ -85,11 +84,12 @@ async def cmd_force_sync(message: Message, bot: Bot):
     try:
         async with async_session_maker() as session:
             res = await sync_all_courses(session, bot=bot)
+            await schedule_cache.reload_from_db(session)
 
         saved = res.get("total_lessons_saved", 0)
         await msg.edit_text(
             f"✅ <b>Синхронизация успешно завершена!</b>\n\n"
-            f"📚 Всего обновлено пар: <b>{saved}</b>"
+            f"📚 Всего обновлено пар в базе и кэше: <b>{saved}</b>"
         )
     except Exception as e:
         logger.error(f"Ошибка команды /sync: {e}")

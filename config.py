@@ -34,7 +34,7 @@ API_BASE_URL = "https://bio.bsu.by"
 MINSK_TZ = ZoneInfo("Europe/Minsk")
 
 def get_minsk_now() -> datetime:
-    return datetime.now(MINSK_TZ)
+  return datetime.now(MINSK_TZ).replace(tzinfo=None)
 
 # Логирование
 LOG_FORMAT = "%(asctime)s - [%(levelname)s] - %(name)s - %(message)s"

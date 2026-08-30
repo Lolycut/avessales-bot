@@ -5,11 +5,17 @@ from models import Base
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    pool_size=10,         
-    max_overflow=20,      
-    pool_timeout=10,       
-    pool_pre_ping=True,   
-    pool_recycle=300       
+    connect_args={
+        "ssl": "require"},
+    pool_size=5,
+    max_overflow=10,
+    pool_timeout=15,
+    pool_pre_ping=True,
+    pool_recycle=300,
+)
+
+async_session_maker = async_sessionmaker(
+    engine, class_=AsyncSession, expire_on_commit=False
 )
 
 async_session_maker = async_sessionmaker(
