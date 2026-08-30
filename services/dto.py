@@ -52,7 +52,7 @@ class ScheduleChangeDTO:
     day: int
     slot_id: int
     subgroup: int | None
-    change_type: str  # 'modified', 'added', 'removed'
+    change_type: str 
     subject: str
     lesson_type: str
     details: list[str] = field(default_factory=list)

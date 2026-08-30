@@ -119,9 +119,6 @@ async def dispatch_schedule_changes(
     bot: Bot, 
     all_changes: dict[int, tuple[date, list[ScheduleChangeDTO]]]
 ):
-    """
-    Рассылает экстренные уведомления об изменениях в расписании нужным группам и студентам.
-    """
     if not all_changes:
         return
 

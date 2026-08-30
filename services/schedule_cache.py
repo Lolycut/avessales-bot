@@ -29,10 +29,6 @@ TEACHER_STOP_WORDS = {
 
 
 def _match_teacher_surname(query_word: str, full_teacher_name: str) -> bool:
-    """
-    Проверяет, соответствует ли слово из запроса фамилии преподавателя
-    с учетом русских падежных окончаний.
-    """
     parts = full_teacher_name.strip().split()
     if not parts:
         return False

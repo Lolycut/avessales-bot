@@ -151,9 +151,6 @@ def calculate_schedule_diff(
     old_lessons: list[Lesson], 
     new_lessons: list[Lesson]
 ) -> dict[int, list[ScheduleChangeDTO]]:
-    """
-    Сравнивает старое и новое расписание для каждой группы и возвращает список изменений.
-    """
     changes_by_group: dict[int, list[ScheduleChangeDTO]] = defaultdict(list)
 
     # Группируем по (group_id)

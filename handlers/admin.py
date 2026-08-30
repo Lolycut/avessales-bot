@@ -256,7 +256,7 @@ async def cmd_tech_broadcast(message: Message, command: CommandObject, bot: Bot)
 async def cmd_get_logs(message: Message):
     log_path = "bot.log"
     if not os.path.exists(log_path) or os.path.getsize(log_path) == 0:
-        await message.reply("Лог-файл пуст или еще не создан.")
+        await message.reply("Лог-файл пуст или еще не создан")
         return
 
     try:
