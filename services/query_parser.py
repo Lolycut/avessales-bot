@@ -11,8 +11,8 @@ DAY_TARGETS_MAP = {
     "пт": 4, "пят": 4, "пятница": 4, "пятницу": 4, "пятницы": 4, "пятнице": 4, "пятнеца": 4,
     "сб": 5, "суб": 5, "суббота": 5, "субботу": 5, "субботы": 5, "субботе": 5, "субота": 5,
     "вс": 6, "вск": 6, "воскресенье": 6, "воскресенью": 6, "воскресенья": 6, "воскресение": 6,
-    "сегодня": "today", "седня": "today",
-    "сейчас": "current", "щас": "current",
+    "сегодня": "today", "седня": "today", "севодня": "today",
+    "сейчас": "current", "щас": "current", "щяс": "current", "ща": "current", "сейчасная": "current",
     "завтра": "tomorrow", "завтро": "tomorrow",
     "послезавтра": "after_tomorrow",
 }
@@ -34,6 +34,23 @@ GENERAL_SCHEDULE_KEYWORDS = {
     "занятия", "занятий", "уроки", "уроков"
 }
 
+# Регулярка для поиска фраз о текущей аудитории / местоположении
+CURRENT_LOCATION_REGEX = re.compile(
+    r"\b("
+    r"где\s+мы(?:\s+сейчас|\s+щас)?"
+    r"|куда\s+(?:идти|нам|ехать)"
+    r"|в\s+какой\s+(?:мы\s+)?(?:аудитории|ауде|кабинете|корпусе|ауд)"
+    r"|какая\s+(?:у\s+нас\s+)?(?:аудитория|ауда|ауд)"
+    r"|какой\s+(?:у\s+нас\s+)?(?:кабинет|корпус)"
+    r"|где\s+(?:щас|сейчас|пара|пары|занятие)"
+    r"|какая\s+(?:сейчас|щас)\s+пара"
+    r"|какая\s+пара\s+(?:сейчас|щас)"
+    r"|что\s+(?:у\s+нас\s+)?(?:сейчас|щас)"
+    r"|че\s+(?:у\s+нас\s+)?(?:сейчас|щас)"
+    r")\b",
+    re.IGNORECASE
+)
+
 PAIR_REGEX = re.compile(
     r"\b([1-8])\s*(?:-(?:я|ая|ей|ую|е|й|ья|ью)|(?:я|ая|ей|ую|е|й|ья|ью))?\s+(?:пара|пары|паре|пару|парой)\b"
     r"|\b([1-8])-(?:я|ая|ей|ую|е|й|ья|ью)\b"
@@ -49,7 +66,7 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
     today = get_minsk_now().date()
     clean_text = text.lower().strip()
 
-    # 1. Поиск группы (1-41, 2-42)
+    # 1. Поиск чужой группы (1-41, 2-42)
     target_group = None
     group_match = GROUP_REGEX.search(clean_text)
     if group_match:
@@ -73,7 +90,10 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
             "target_group": target_group,
         }
 
-    # 3. Поиск номера пары
+    # 3. Проверка на запрос текущей пары / локации / аудитории через фразы
+    is_current_location_query = bool(CURRENT_LOCATION_REGEX.search(clean_text))
+
+    # 4. Поиск номера пары
     matched_slot_id = None
     pair_match = PAIR_REGEX.search(clean_text)
     if pair_match:
@@ -93,19 +113,29 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
         if w in GENERAL_SCHEDULE_KEYWORDS:
             has_general_trigger = True
 
-    # 4. Если в сообщении нет явного намерения узнать расписание — не реагируем
+    # 5. Если сработал вопрос «где мы? / какая аудитория?» без указания другого дня или слота
+    if is_current_location_query and matched_day_val is None and matched_slot_id is None:
+        return {
+            "type": "current",
+            "date": today,
+            "day_index": today.weekday(),
+            "target_group": target_group,
+        }
+
+    # 6. Если в сообщении нет явного намерения узнать расписание — игнорируем
     if (
         matched_day_val is None 
         and matched_slot_id is None 
         and target_group is None 
         and not has_general_trigger
+        and not is_current_location_query
     ):
         return None
 
     target_date = today
     day_index = today.weekday()
 
-    if matched_day_val == "current":
+    if matched_day_val == "current" or (is_current_location_query and matched_day_val is None and matched_slot_id is None):
         return {
             "type": "current",
             "date": today,
