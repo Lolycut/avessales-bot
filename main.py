@@ -80,7 +80,7 @@ async def on_startup(bot: Bot):
         try:
             logger.info("🌐 Запрос свежих данных с bio.bsu.by...")
             await sync_all_courses(session, target_date=get_minsk_now().date(), bot=None)
-            logger.info("✅ Первичная синхронизация с сайтом успешно завершена.")
+            logger.info("✅ Первичная синхронизация с сайтом успешно завершена")
         except Exception as e:
             logger.warning(
                 f"⚠️ Не удалось связаться с bio.bsu.by при старте: {e}. "

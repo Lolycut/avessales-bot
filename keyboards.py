@@ -69,20 +69,30 @@ def settings_subgroups_kb() -> InlineKeyboardMarkup:
     )
 
 
-def week_nav_kb(current_monday: date) -> InlineKeyboardMarkup:
+def week_nav_kb(
+    current_monday: date, 
+    group_id: int | None = None, 
+    subgroup: int | None = None
+) -> InlineKeyboardMarkup:
     prev_monday = current_monday - timedelta(days=7)
     next_monday = current_monday + timedelta(days=7)
+
+    prev_date_str = prev_monday.strftime("%Y-%m-%d")
+    next_date_str = next_monday.strftime("%Y-%m-%d")
+
+    if group_id is not None:
+        sub_val = subgroup if subgroup is not None else 0
+        prev_cb = f"week_date_{prev_date_str}_{group_id}_{sub_val}"
+        next_cb = f"week_date_{next_date_str}_{group_id}_{sub_val}"
+    else:
+        prev_cb = f"week_date_{prev_date_str}"
+        next_cb = f"week_date_{next_date_str}"
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text="◀️ Пред. неделя", 
-                    callback_data=f"week_date_{prev_monday.strftime('%Y-%m-%d')}"
-                ),
-                InlineKeyboardButton(
-                    text="След. неделя ▶️", 
-                    callback_data=f"week_date_{next_monday.strftime('%Y-%m-%d')}"
-                )
+                InlineKeyboardButton(text="◀️ Пред. неделя", callback_data=prev_cb),
+                InlineKeyboardButton(text="След. неделя ▶️", callback_data=next_cb)
             ]
         ]
     )

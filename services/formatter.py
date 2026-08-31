@@ -12,6 +12,8 @@ from aiogram.types import (
     RichBlockTableCell,
     RichTextBold,
     RichTextItalic,
+    RichTextMarked,
+    RichTextStrikethrough,
 )
 
 TIMESLOTS = {
@@ -303,7 +305,6 @@ def build_schedule_changes_rich_message(
     start_monday: date,
     changes: list[ScheduleChangeDTO],
 ) -> InputRichMessage:
-
     end_saturday = start_monday + timedelta(days=5)
 
     blocks = [
@@ -314,7 +315,9 @@ def build_schedule_changes_rich_message(
             size=2,
         ),
         InputRichBlockParagraph(
-            text=RichTextItalic(text="Сайт bio.bsu.by обновил данные для вашей группы:")
+            text=RichTextItalic(
+                text="Сайт bio.bsu.by обновил расписание:\n🟢 Новая пара | 🔴 Отмена | 🟡 Замена / изменение"
+            )
         )
     ]
 
@@ -349,26 +352,45 @@ def build_schedule_changes_rich_message(
 
             clean_subj = clean_html(ch.subject)
             room_text = ch.room or "—"
+            slot_text = f"{slot_info['order']} ({start_time})"
+            full_subj_text = f"{clean_subj}{type_str}{sub_str}"
 
             if ch.change_type == "added":
-                status_text = "➕ Новая"
+                # 🟢 Зеленый - новая пара
                 details_clean = [clean_html(d) for d in ch.details]
-                if details_clean:
-                    status_text += f" ({', '.join(details_clean)})"
+                details_str = f" ({', '.join(details_clean)})" if details_clean else ""
+                status_text = f"🟢 ➕ Новая{details_str}"
+
+                slot_cell_text = RichTextBold(text=slot_text)
+                room_cell_text = RichTextBold(text=room_text)
+                subj_cell_text = RichTextBold(text=full_subj_text)
+                status_cell_text = RichTextBold(text=status_text)
+
             elif ch.change_type == "removed":
-                status_text = "❌ Отмена"
-                room_text = "—"
+                # 🔴 Красный - отмена
+                status_text = "🔴 ❌ Отмена"
+
+                slot_cell_text = RichTextStrikethrough(text=slot_text)
+                room_cell_text = RichTextStrikethrough(text=room_text)
+                subj_cell_text = RichTextStrikethrough(text=full_subj_text)
+                status_cell_text = RichTextBold(text=status_text)
+
             else:
-                status_text = "🔄 Замена"
+                # 🟡 Желтый - изменение параметров / замена пары
                 details_clean = [clean_html(d) for d in ch.details]
-                if details_clean:
-                    status_text += f" ({', '.join(details_clean)})"
+                details_str = f" ({', '.join(details_clean)})" if details_clean else ""
+                status_text = f"🟡 🔄 Замена{details_str}"
+
+                slot_cell_text = RichTextBold(text=slot_text)
+                room_cell_text = RichTextBold(text=room_text)
+                subj_cell_text = RichTextMarked(text=full_subj_text)
+                status_cell_text = RichTextMarked(text=status_text)
 
             rows.append([
-                RichBlockTableCell(text=f"{slot_info['order']} ({start_time})", align="center", valign="middle"),
-                RichBlockTableCell(text=RichTextBold(text=room_text), align="center", valign="middle"),
-                RichBlockTableCell(text=f"{clean_subj}{type_str}{sub_str}", align="left", valign="middle"),
-                RichBlockTableCell(text=RichTextItalic(text=status_text), align="left", valign="middle"),
+                RichBlockTableCell(text=slot_cell_text, align="center", valign="middle"),
+                RichBlockTableCell(text=room_cell_text, align="center", valign="middle"),
+                RichBlockTableCell(text=subj_cell_text, align="left", valign="middle"),
+                RichBlockTableCell(text=status_cell_text, align="left", valign="middle"),
             ])
 
         blocks.append(

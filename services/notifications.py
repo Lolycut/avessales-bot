@@ -2,6 +2,7 @@ import asyncio
 from datetime import date
 from sqlalchemy import select
 from aiogram import Bot
+from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError
 
 from config import logger, get_minsk_now
 from database import async_session_maker
@@ -52,6 +53,15 @@ async def send_to_recipient(
             await bot.send_rich_message(chat_id=target_id, rich_message=rich_card)
             await asyncio.sleep(0.04)
             return True
+        except TelegramRetryAfter as e:
+            await asyncio.sleep(e.retry_after)
+            try:
+                await bot.send_rich_message(chat_id=target_id, rich_message=rich_card)
+                return True
+            except Exception:
+                return False
+        except TelegramForbiddenError:
+            return False
         except Exception as e:
             logger.warning(f"Ошибка отправки уведомления получателю {target_id}: {e}")
             return False
@@ -157,7 +167,7 @@ async def dispatch_schedule_changes(
                 except Exception as e:
                     logger.warning(f"Не удалось доставить изменение в расписании в {chat_id}: {e}")
 
-    logger.info("✅ Оповещение об изменениях в расписании успешно разослано.")
+    logger.info("✅ Оповещение об изменениях в расписании успешно разослано")
 
 
 async def morning_notifications_loop(bot: Bot):

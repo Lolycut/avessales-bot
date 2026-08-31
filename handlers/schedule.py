@@ -53,7 +53,7 @@ async def send_week_schedule(
     await bot.send_rich_message(
         chat_id=chat_id, 
         rich_message=rich_msg,
-        reply_markup=week_nav_kb(actual_monday)
+        reply_markup=week_nav_kb(actual_monday, group_id=group.id, subgroup=target_subgroup)
     )
 
 
@@ -81,7 +81,9 @@ async def callback_switch_week_by_date(callback: CallbackQuery, bot: Bot):
     except TelegramBadRequest:
         pass
 
-    date_str = callback.data.replace("week_date_", "")
+    raw_payload = callback.data.replace("week_date_", "")
+    parts = raw_payload.split("_")
+    date_str = parts[0]
     try:
         target_monday = datetime.strptime(date_str, "%Y-%m-%d").date()
     except ValueError:
@@ -89,21 +91,28 @@ async def callback_switch_week_by_date(callback: CallbackQuery, bot: Bot):
 
     is_group_chat = callback.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
 
-    async with async_session_maker() as session:
-        if is_group_chat:
-            chat_obj = await session.get(Chat, callback.message.chat.id)
-            if not chat_obj or not chat_obj.group_id:
-                return
-            group_id = chat_obj.group_id
-            target_subgroup = 0
-            user_name = callback.message.chat.title or "Группа"
-        else:
-            user = await session.get(User, callback.from_user.id)
-            if not user or not user.group_id:
-                return
-            group_id = user.group_id
-            target_subgroup = user.subgroup or 0
-            user_name = user.first_name or "Студент"
+    # Если group_id и subgroup были закодированы в кнопке (для сторонних или личных групп)
+    if len(parts) >= 3 and parts[1].isdigit():
+        group_id = int(parts[1])
+        target_subgroup = int(parts[2]) if parts[2].isdigit() else 0
+        user_name = callback.message.chat.title if is_group_chat else (callback.from_user.first_name or "Студент")
+    else:
+        # Fallback для старых инлайн-кнопок
+        async with async_session_maker() as session:
+            if is_group_chat:
+                chat_obj = await session.get(Chat, callback.message.chat.id)
+                if not chat_obj or not chat_obj.group_id:
+                    return
+                group_id = chat_obj.group_id
+                target_subgroup = 0
+                user_name = callback.message.chat.title or "Группа"
+            else:
+                user = await session.get(User, callback.from_user.id)
+                if not user or not user.group_id:
+                    return
+                group_id = user.group_id
+                target_subgroup = user.subgroup or 0
+                user_name = user.first_name or "Студент"
 
     group = schedule_cache.get_group_by_id(group_id)
     if not group:
@@ -160,7 +169,6 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
     # 2. Парсинг запроса на расписание
     parsed = parse_schedule_query(message.text)
     if not parsed:
-        # Если это не запрос расписания (например, обычное общение в беседе) — молчим
         return
 
     await state.clear()

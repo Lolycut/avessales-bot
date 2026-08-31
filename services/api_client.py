@@ -192,7 +192,7 @@ def calculate_schedule_diff(
         old_dict = old_by_grp.get(g_id, {})
         new_dict = new_by_grp.get(g_id, {})
 
-        # Если старых записей вообще не было (холодный старт) — не спамим изменениями
+        # Если старых записей вообще не было (первый старт) — не спамим изменениями
         if not old_dict:
             continue
 
@@ -280,7 +280,7 @@ async def sync_schedule_to_db(
     if not week_id:
         return 0, {}
 
-    # Сохраняем или ОБНОВЛЯЕМ дату недели в базе
+    # Сохраняем или обновляем дату недели в базе
     week_obj = await session.get(Week, week_id)
     if not week_obj:
         week_obj = Week(id=week_id, study_mode=study_mode, course=course, start_date=actual_monday)
@@ -374,7 +374,7 @@ async def sync_all_courses(session: AsyncSession, target_date: date | None = Non
 
     # 2. Синхронизируем расписание по 5 курсам с мягкой паузой (0.25с)
     total_lessons = 0
-    all_detected_changes: dict[int, tuple[date, list[ScheduleChangeDTO]]] = {}
+    all_detected_changes: dict[tuple[int, date], list[ScheduleChangeDTO]] = defaultdict(list)
 
     for c in range(1, 6):
         for target_w in (target_date, next_week, after_next_week):
@@ -382,10 +382,8 @@ async def sync_all_courses(session: AsyncSession, target_date: date | None = Non
                 count, diffs = await sync_schedule_to_db(session, valid_group_ids, target_date=target_w, course=c)
                 total_lessons += count
                 for g_id, (m, ch) in diffs.items():
-                    if g_id in all_detected_changes:
-                        all_detected_changes[g_id][1].extend(ch)
-                    else:
-                        all_detected_changes[g_id] = (m, list(ch))
+                    if ch:
+                        all_detected_changes[(g_id, m)].extend(ch)
                 
                 # Мягкая задержка между запросами для естественного поведения
                 await asyncio.sleep(0.25)
@@ -395,9 +393,10 @@ async def sync_all_courses(session: AsyncSession, target_date: date | None = Non
 
     # 3. Если передан bot и есть изменения — рассылаем уведомления
     if bot and all_detected_changes:
-        asyncio.create_task(dispatch_schedule_changes(bot, all_detected_changes))
+        asyncio.create_task(dispatch_schedule_changes(bot, dict(all_detected_changes)))
 
     now_str = get_minsk_now().strftime("%d.%m.%Y %H:%M:%S")
+    unique_groups = list({g_id for g_id, _ in all_detected_changes.keys()})
 
     LAST_SYNC_INFO.update({
         "timestamp": now_str,
@@ -405,7 +404,7 @@ async def sync_all_courses(session: AsyncSession, target_date: date | None = Non
         "errors": [],
         "total_lessons_saved": total_lessons,
         "changes_count": len(all_detected_changes),
-        "changed_groups": list(all_detected_changes.keys()),
+        "changed_groups": unique_groups,
     })
 
     logger.info(f"Синхронизация завершена в {now_str}. Всего сохранено пар: {total_lessons}")
