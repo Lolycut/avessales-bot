@@ -303,6 +303,7 @@ def build_schedule_changes_rich_message(
     start_monday: date,
     changes: list[ScheduleChangeDTO],
 ) -> InputRichMessage:
+
     end_saturday = start_monday + timedelta(days=5)
 
     blocks = [
@@ -334,41 +335,40 @@ def build_schedule_changes_rich_message(
         )
 
         rows = [[
-            RichBlockTableCell(text=RichTextBold(text="Статус"), is_header=True, align="center", valign="middle"),
             RichBlockTableCell(text=RichTextBold(text="Пара"), is_header=True, align="center", valign="middle"),
             RichBlockTableCell(text=RichTextBold(text="Ауд."), is_header=True, align="center", valign="middle"),
-            RichBlockTableCell(text=RichTextBold(text="Предмет и детали"), is_header=True, align="left", valign="middle"),
+            RichBlockTableCell(text=RichTextBold(text="Предмет"), is_header=True, align="left", valign="middle"),
+            RichBlockTableCell(text=RichTextBold(text="Статус"), is_header=True, align="left", valign="middle"),
         ]]
 
         for ch in day_changes:
             slot_info = TIMESLOTS.get(ch.slot_id, {"order": str(ch.slot_id), "time": "--:--"})
             start_time = slot_info["time"].split(" - ")[0]
             sub_str = f" (п/г {ch.subgroup})" if ch.subgroup else ""
-            type_str = f" [{clean_html(ch.lesson_type)}]" if ch.lesson_type else ""
+            type_str = f" [{ch.lesson_type}]" if ch.lesson_type else ""
+
             clean_subj = clean_html(ch.subject)
+            room_text = ch.room or "—"
 
             if ch.change_type == "added":
                 status_text = "➕ Новая"
-                room_text = clean_html(ch.room) or "—"
                 details_clean = [clean_html(d) for d in ch.details]
-                details_str = f" ({', '.join(details_clean)})" if details_clean else ""
-                info_text = f"{clean_subj}{type_str}{sub_str}{details_str}"
+                if details_clean:
+                    status_text += f" ({', '.join(details_clean)})"
             elif ch.change_type == "removed":
                 status_text = "❌ Отмена"
                 room_text = "—"
-                info_text = f"{clean_subj}{type_str}{sub_str}"
-            else:  # modified
+            else:
                 status_text = "🔄 Замена"
-                room_text = clean_html(ch.room) or "—"
                 details_clean = [clean_html(d) for d in ch.details]
-                details_str = f" ({', '.join(details_clean)})" if details_clean else ""
-                info_text = f"{clean_subj}{type_str}{sub_str}{details_str}"
+                if details_clean:
+                    status_text += f" ({', '.join(details_clean)})"
 
             rows.append([
-                RichBlockTableCell(text=RichTextBold(text=status_text), align="center", valign="middle"),
                 RichBlockTableCell(text=f"{slot_info['order']} ({start_time})", align="center", valign="middle"),
                 RichBlockTableCell(text=RichTextBold(text=room_text), align="center", valign="middle"),
-                RichBlockTableCell(text=info_text, align="left", valign="middle"),
+                RichBlockTableCell(text=f"{clean_subj}{type_str}{sub_str}", align="left", valign="middle"),
+                RichBlockTableCell(text=RichTextItalic(text=status_text), align="left", valign="middle"),
             ])
 
         blocks.append(
