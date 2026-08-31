@@ -75,7 +75,11 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
         target_group = {"course": course, "group_number": group_num}
         clean_text = clean_text[:group_match.start()] + " " + clean_text[group_match.end():]
 
-    # 2. Поиск предмета (дисциплины)
+    # 2. Недельный запрос (если нет явного поиска предмета)
+    is_next_week = any(w in clean_text for w in ["след", "следующ", "будущ", "next"])
+    is_week_query = any(w in clean_text for w in ["неделю", "неделя", "неделе", "недели"])
+
+    # 3. Поиск предмета (дисциплины)
     subj_match = extract_subject_from_query(clean_text)
     if subj_match:
         canon_name, raw_word = subj_match
@@ -87,10 +91,7 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
             "target_group": target_group,
         }
 
-    # 3. Недельный запрос
-    is_next_week = any(w in clean_text for w in ["след", "следующ", "будущ", "next"])
-    is_week_query = any(w in clean_text for w in ["неделю", "неделя", "неделе", "недели"])
-
+    # Если это запрос всей недели
     if is_week_query:
         monday = today - timedelta(days=today.weekday())
         if is_next_week or today.weekday() >= 5:
@@ -105,6 +106,7 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
     # 4. Запрос текущей пары / локации
     is_current_location_query = bool(CURRENT_LOCATION_REGEX.search(clean_text))
 
+    # 5. Поиск номера пары
     matched_slot_id = None
     pair_match = PAIR_REGEX.search(clean_text)
     if pair_match:
