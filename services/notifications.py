@@ -127,15 +127,15 @@ async def send_morning_schedule(bot: Bot):
 
 async def dispatch_schedule_changes(
     bot: Bot, 
-    all_changes: dict[int, tuple[date, list[ScheduleChangeDTO]]]
+    all_changes: dict[tuple[int, date], list[ScheduleChangeDTO]]
 ):
     if not all_changes:
         return
 
-    logger.info(f"⚡ Обнаружены изменения расписания для {len(all_changes)} групп! Начинаю адресную рассылку...")
+    logger.info(f"⚡ Обнаружены изменения расписания ({len(all_changes)} недель/групп)! Начинаю адресную рассылку...")
     semaphore = asyncio.Semaphore(25)
 
-    for group_id, (monday, changes) in all_changes.items():
+    for (group_id, monday), changes in all_changes.items():
         group = schedule_cache.get_group_by_id(group_id)
         if not group or not changes:
             continue
@@ -164,10 +164,18 @@ async def dispatch_schedule_changes(
                 try:
                     await bot.send_rich_message(chat_id=chat_id, rich_message=rich_msg)
                     await asyncio.sleep(0.04)
+                except TelegramRetryAfter as e:
+                    await asyncio.sleep(e.retry_after)
+                    try:
+                        await bot.send_rich_message(chat_id=chat_id, rich_message=rich_msg)
+                    except Exception:
+                        pass
+                except TelegramForbiddenError:
+                    pass
                 except Exception as e:
                     logger.warning(f"Не удалось доставить изменение в расписании в {chat_id}: {e}")
 
-    logger.info("✅ Оповещение об изменениях в расписании успешно разослано")
+    logger.info("✅ Оповещение об изменениях в расписании успешно разослано.")
 
 
 async def morning_notifications_loop(bot: Bot):
