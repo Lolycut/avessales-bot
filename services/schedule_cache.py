@@ -277,11 +277,12 @@ class ScheduleCache:
 
     def find_subject_schedule(
         self,
-        query_course: int | None,
         target_date: date,
         canon_subject: str,
-        raw_word: str
-    ) -> tuple[str, date, list[SubjectSlotDTO]] | None:
+        raw_word: str,
+        query_course: int | None = None,
+        query_group_num: str | None = None,
+    ) -> tuple[str, date, list[SubjectSlotDTO], str | None] | None:
         aliases = SUBJECT_ALIASES.get(canon_subject, [canon_subject, raw_word])
         aliases_lower = [a.lower() for a in aliases] + [canon_subject.lower(), raw_word.lower()]
 
@@ -307,6 +308,10 @@ class ScheduleCache:
 
                 groups_in_course = self.get_all_groups_for_course(c)
                 for g in groups_in_course:
+                    # Фильтр по конкретной группе (если запрошено, например, 2-41)
+                    if query_group_num and str(g.number).strip() != str(query_group_num).strip():
+                        continue
+
                     lessons = self._lessons_by_group_week.get((g.id, target_w.id), [])
                     for l in lessons:
                         if is_match(l.subject):
@@ -314,15 +319,23 @@ class ScheduleCache:
             return act_m, matched
 
         actual_monday, records = collect_records(courses_to_search)
-        if not records and courses_to_search != all_courses:
+        if not records and courses_to_search != all_courses and not query_group_num:
             actual_monday, records = collect_records(all_courses)
 
         if not records:
             return None
 
-        # Красивое название дисциплины из найденных в расписании
+        # Определение сасного заголовка дисциплины
         subject_names = [r[0].subject for r in records]
         display_title = Counter(subject_names).most_common(1)[0][0] if subject_names else canon_subject.capitalize()
+
+        # Формирование бейджа фильтра (Группа 2-41 / 2 курс)
+        if query_group_num:
+            badge = f"👥 Группа {query_course}-{query_group_num}" if query_course else f"👥 Группа {query_group_num}"
+        elif query_course:
+            badge = f"🎓 {query_course} курс"
+        else:
+            badge = None
 
         grouped_slots: dict[tuple, SubjectSlotDTO] = {}
         for lesson, group, week in records:
@@ -351,7 +364,7 @@ class ScheduleCache:
             item.groups_display = ", ".join(item.groups)
             lessons_list.append(item)
 
-        return display_title, actual_monday, lessons_list
+        return display_title, actual_monday, lessons_list, badge
 
 
 schedule_cache = ScheduleCache()

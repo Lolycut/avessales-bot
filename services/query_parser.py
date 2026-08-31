@@ -61,12 +61,17 @@ GROUP_REGEX = re.compile(
     r"\b([1-5])\s*[-_/\\]\s*([0-9]+(?:-[0-9]+)*)(?!\s*-(?:я|ая|ей|ую|е|й))(?!\s*(?:пара|пары|паре|пару|парой))\b"
 )
 
+COURSE_REGEX = re.compile(
+    r"\b([1-5])\s*(?:-?(?:ый|ой|ий|й|ем|ом|е|у))?\s*курс[а-я]*\b",
+    re.IGNORECASE
+)
+
 
 def parse_schedule_query(text: str) -> dict[str, Any] | None:
     today = get_minsk_now().date()
     clean_text = text.lower().strip()
 
-    # 1. Поиск группы (1-41, 2-49)
+    # 1. Поиск группы вида 2-41, 1-42
     target_group = None
     group_match = GROUP_REGEX.search(clean_text)
     if group_match:
@@ -75,11 +80,18 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
         target_group = {"course": course, "group_number": group_num}
         clean_text = clean_text[:group_match.start()] + " " + clean_text[group_match.end():]
 
-    # 2. Недельный запрос (если нет явного поиска предмета)
+    # 2. Поиск курса вида "2 курс", "3-й курс"
+    target_course = None
+    course_match = COURSE_REGEX.search(clean_text)
+    if course_match:
+        target_course = int(course_match.group(1))
+        clean_text = clean_text[:course_match.start()] + " " + clean_text[course_match.end():]
+
+    # 3. Недельный запрос
     is_next_week = any(w in clean_text for w in ["след", "следующ", "будущ", "next"])
     is_week_query = any(w in clean_text for w in ["неделю", "неделя", "неделе", "недели"])
 
-    # 3. Поиск предмета (дисциплины)
+    # 4. Поиск предмета (дисциплины)
     subj_match = extract_subject_from_query(clean_text)
     if subj_match:
         canon_name, raw_word = subj_match
@@ -89,6 +101,7 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
             "raw_subject_word": raw_word,
             "date": today,
             "target_group": target_group,
+            "target_course": target_course or (target_group["course"] if target_group else None),
         }
 
     # Если это запрос всей недели
@@ -103,10 +116,10 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
             "target_group": target_group,
         }
 
-    # 4. Запрос текущей пары / локации
+    # 5. Запрос текущей пары / локации
     is_current_location_query = bool(CURRENT_LOCATION_REGEX.search(clean_text))
 
-    # 5. Поиск номера пары
+    # 6. Поиск номера пары
     matched_slot_id = None
     pair_match = PAIR_REGEX.search(clean_text)
     if pair_match:

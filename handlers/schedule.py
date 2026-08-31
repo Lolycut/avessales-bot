@@ -205,25 +205,35 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
             await message.answer("⚠️ Группа не найдена. Пройдите регистрацию заново: /start")
         return
 
-    # 3.5. Поиск пар по конкретному предмету на неделю (вид как у преподавателя)
+    # 3.5. Поиск пар по конкретному предмету на неделю
     if parsed["type"] == "subject":
+        target_group_dict = parsed.get("target_group")
+        q_course = parsed.get("target_course")
+        q_group_num = target_group_dict.get("group_number") if target_group_dict else None
+
+        if not q_course and group:
+            q_course = group.course
+
         subject_match = schedule_cache.find_subject_schedule(
-            query_course=group.course if group else None,
             target_date=parsed["date"],
             canon_subject=parsed["canon_subject"],
-            raw_word=parsed["raw_subject_word"]
+            raw_word=parsed["raw_subject_word"],
+            query_course=q_course,
+            query_group_num=q_group_num
         )
 
         if not subject_match:
-            await message.answer(f"🌴 На этой неделе пар по предмету «<b>{parsed['canon_subject']}</b>» не найдено!")
+            filter_text = f" для группы <b>{q_group_num}</b>" if q_group_num else (f" на <b>{q_course} курсе</b>" if q_course else "")
+            await message.answer(f"🌴 На этой неделе пар по предмету «<b>{parsed['canon_subject']}</b>»{filter_text} не найдено!")
             return
 
-        subject_title, actual_monday, subject_slots = subject_match
+        subject_title, actual_monday, subject_slots, filter_badge = subject_match
 
         rich_msg = format_subject_rich_schedule(
             subject_title=subject_title,
             start_monday=actual_monday,
-            lessons_data=subject_slots
+            lessons_data=subject_slots,
+            filter_badge=filter_badge
         )
         await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg)
         return

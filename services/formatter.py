@@ -335,16 +335,19 @@ def format_subject_rich_schedule(
     subject_title: str,
     start_monday: date,
     lessons_data: list[SubjectSlotDTO],
+    filter_badge: str | None = None,
 ) -> InputRichMessage:
     end_saturday = start_monday + timedelta(days=5)
 
     unique_teachers = sorted(list({short_name(item.teacher) for item in lessons_data if item.teacher}))
-    teachers_text = ", ".join(unique_teachers) if unique_teachers else "Не указаны"
+    teachers_text = ", ".join(unique_teachers) if unique_teachers else "Не указан"
+
+    badge_line = f"\n{filter_badge}" if filter_badge else ""
 
     blocks = [
         InputRichBlockSectionHeading(
             text=RichTextBold(
-                text=f"📚 {subject_title}\n🗓 Неделя: {start_monday.strftime('%d.%m')} — {end_saturday.strftime('%d.%m')}"
+                text=f"📚 {subject_title}{badge_line}\n🗓 Неделя: {start_monday.strftime('%d.%m')} — {end_saturday.strftime('%d.%m')}"
             ),
             size=2,
         ),
