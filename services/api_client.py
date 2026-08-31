@@ -95,24 +95,34 @@ class BioBSUApiClient:
             pass
         return []
 
-    async def fetch_week_for_date(self, target_date: date, course: int = 2, study_mode: str = "Дневная") -> int | None:
+    async def fetch_week_for_date(self, target_date: date, course: int = 2, study_mode: str = "Дневная") -> tuple[int | None, date]:
         url = f"{self.base_url}/schedule/api/get-week-for-date/"
         monday = target_date - timedelta(days=target_date.weekday())
         params = {"study_mode": study_mode, "course": course, "date": monday.strftime("%Y-%m-%d")}
         response = await self._safe_get(url, params=params)
         if not response:
-            return None
+            return None, monday
         try:
             data = response.json()
             week_data = data.get("week")
             if isinstance(week_data, dict):
-                return week_data.get("id")
+                w_id = week_data.get("id")
+                raw_start = week_data.get("start_date") or week_data.get("date_start") or week_data.get("start")
+                actual_monday = monday
+                if raw_start:
+                    try:
+                        actual_monday = date.fromisoformat(str(raw_start).split("T")[0])
+                    except Exception:
+                        actual_monday = monday
+                if w_id:
+                    return int(w_id), actual_monday
+
             week_id = data.get("week_id") or data.get("id")
             if week_id:
-                return int(week_id)
+                return int(week_id), monday
         except Exception:
             pass
-        return None
+        return None, monday
 
     async def fetch_schedule(self, week_id: int, course: int = 2, study_mode: str = "Дневная") -> list[dict[str, Any]] | None:
         url = f"{self.base_url}/schedule/api/get-schedule/"
@@ -266,15 +276,21 @@ async def sync_schedule_to_db(
         target_date = get_current_date()
 
     monday = target_date - timedelta(days=target_date.weekday())
-    week_id = await api_client.fetch_week_for_date(monday, course=course, study_mode=study_mode)
+    week_id, actual_monday = await api_client.fetch_week_for_date(monday, course=course, study_mode=study_mode)
     if not week_id:
         return 0, {}
 
+    # Сохраняем или ОБНОВЛЯЕМ дату недели в базе
     week_obj = await session.get(Week, week_id)
     if not week_obj:
-        week_obj = Week(id=week_id, study_mode=study_mode, course=course, start_date=monday)
+        week_obj = Week(id=week_id, study_mode=study_mode, course=course, start_date=actual_monday)
         session.add(week_obj)
-        await session.commit()
+    else:
+        week_obj.start_date = actual_monday
+        week_obj.course = course
+        week_obj.study_mode = study_mode
+    
+    await session.commit()
 
     raw_lessons = await api_client.fetch_schedule(week_id=week_id, course=course, study_mode=study_mode)
     
@@ -314,19 +330,18 @@ async def sync_schedule_to_db(
                 subgroup=subgroup
             ))
 
-    # Считываем старые занятия для поиска разницы (Diff)
+    # Считываем старые занятия для поиска разницы
     old_lessons_res = await session.execute(select(Lesson).where(Lesson.week_id == week_id))
     old_lessons = old_lessons_res.scalars().all()
 
     # Вычисляем разницу
     diff_results = calculate_schedule_diff(old_lessons, new_lessons)
-    formatted_diffs = {g_id: (monday, changes) for g_id, changes in diff_results.items() if changes}
+    formatted_diffs = {g_id: (actual_monday, changes) for g_id, changes in diff_results.items() if changes}
 
-    # ОПТИМИЗАЦИЯ: если расписание не изменилось — базу не перезаписываем
+    # Если расписание не изменилось — не перезаписываем базу
     if old_lessons and not formatted_diffs and len(old_lessons) == len(new_lessons):
         return len(new_lessons), {}
 
-    # Если есть изменения или это новая неделя — обновляем БД
     await session.execute(delete(Lesson).where(Lesson.week_id == week_id))
     
     if new_lessons:
