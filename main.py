@@ -5,6 +5,7 @@ from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
 from config import BOT_TOKEN, logger, get_minsk_now
 from database import async_session_maker, engine
@@ -14,27 +15,19 @@ from services.schedule_cache import schedule_cache
 from services.notifications import morning_notifications_loop
 from handlers import start, settings, schedule, admin, group_settings
 
+# Настройки Webhook и сервера
+WEBHOOK_PATH = "/webhook"
+BASE_WEBHOOK_URL = os.getenv("BASE_WEBHOOK_URL", "https://biobotm.onrender.com").rstrip("/")
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", None)
+WEB_SERVER_HOST = "0.0.0.0"
+WEB_SERVER_PORT = int(os.getenv("PORT", 8080))
+
+# Список фоновых задач для корректной остановки
+background_tasks: list[asyncio.Task] = []
+
 
 async def handle_ping(request: web.Request) -> web.Response:
-    return web.Response(text="OK!")
-
-
-async def start_dummy_webserver() -> web.AppRunner | None:
-    try:
-        app = web.Application()
-        app.router.add_get("/", handle_ping)
-        app.router.add_get("/health", handle_ping)
-        runner = web.AppRunner(app)
-        await runner.setup()
-        
-        port = int(os.getenv("PORT", 7860))
-        site = web.TCPSite(runner, "0.0.0.0", port)
-        await site.start()
-        logger.info(f"🌐 Веб-сервер успешно запущен на порту {port}")
-        return runner
-    except Exception as e:
-        logger.warning(f"⚠️ Не удалось запустить dummy веб-сервер (не критично для Polling): {e}")
-        return None
+    return web.Response(text="Webhook is edet! 🚀", status=200)
 
 
 async def schedule_auto_sync_task(bot: Bot):
@@ -47,7 +40,7 @@ async def schedule_auto_sync_task(bot: Bot):
                 (7 <= now.hour < 20 or (now.hour == 7 and now.minute >= 30))
             )
             
-            # Рандомизация интервала для органичного поведения
+            # Рандомизация интервала
             if is_active_hours:
                 interval = random.randint(240, 360)   # 4 - 6 минут
             else:
@@ -57,7 +50,6 @@ async def schedule_auto_sync_task(bot: Bot):
             
             async with async_session_maker() as session:
                 res = await sync_all_courses(session, target_date=get_minsk_now().date(), bot=bot)
-                # Если найдены изменения, обновляем данные в оперативной памяти
                 if res.get("changes_count", 0) > 0:
                     await schedule_cache.reload_from_db(session)
                     logger.info(f"⚡ [Watchdog] Обнаружено и разослано {res['changes_count']} изменений в расписании!")
@@ -71,12 +63,12 @@ async def schedule_auto_sync_task(bot: Bot):
 async def on_startup(bot: Bot):
     logger.info("🔄 Инициализация приложения и загрузка данных...")
     
-    # 0. Автоматическое создание недостающих таблиц
+    # 1. Создание недостающих таблиц БД
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
     async with async_session_maker() as session:
-        # 1. Синхронизация с сайтом при старте (bot=None, чтобы не рассылать спам при обычном перезапуске)
+        # 2. Первичная синхронизация с сайтом при старте
         try:
             logger.info("🌐 Запрос свежих данных с bio.bsu.by...")
             await sync_all_courses(session, target_date=get_minsk_now().date(), bot=None)
@@ -87,7 +79,7 @@ async def on_startup(bot: Bot):
                 f"Бот продолжит работу на существующих данных из PostgreSQL"
             )
 
-        # 2. Загрузка In-Memory кэша
+        # 3. Загрузка In-Memory кэша
         try:
             await schedule_cache.reload_from_db(session)
             logger.info("🚀 In-Memory кэш успешно загружен из БД и готов к работе!")
@@ -95,8 +87,46 @@ async def on_startup(bot: Bot):
             logger.critical(f"❌ Критическая ошибка при чтении данных из БД в кэш: {e}")
             raise e
 
+    # 4. Установка Webhook в Telegram
+    webhook_url = f"{BASE_WEBHOOK_URL}{WEBHOOK_PATH}"
+    logger.info(f"🌐 Установка вебхука на {webhook_url}...")
+    await bot.set_webhook(
+        url=webhook_url,
+        drop_pending_updates=True,
+        secret_token=WEBHOOK_SECRET
+    )
+    logger.info("✅ Вебхук успешно установлен в Telegram")
 
-async def main():
+    # 5. Запуск фоновых задач
+    sync_task = asyncio.create_task(schedule_auto_sync_task(bot))
+    notify_task = asyncio.create_task(morning_notifications_loop(bot))
+    background_tasks.extend([sync_task, notify_task])
+
+
+async def on_shutdown(bot: Bot):
+    logger.info("🛑 Остановка приложения, завершение фоновых задач...")
+
+    # Отмена фоновых задач
+    for task in background_tasks:
+        task.cancel()
+    if background_tasks:
+        await asyncio.gather(*background_tasks, return_exceptions=True)
+
+    # Удаление вебхука из Telegram
+    try:
+        await bot.delete_webhook()
+        logger.info("🌐 Вебхук успешно удален из Telegram")
+    except Exception as e:
+        logger.warning(f"⚠️ Ошибка при удалении вебхука: {e}")
+
+    # Закрытие сессий и пулов
+    await api_client.close()
+    await bot.session.close()
+    await engine.dispose()
+    logger.info("✅ Все сетевые сессии и пулы соединений БД успешно закрыты")
+
+
+def main():
     if not BOT_TOKEN:
         logger.critical("❌ Ошибка: BOT_TOKEN не задан в переменных окружения!")
         return
@@ -104,42 +134,40 @@ async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
 
-    # Подключение роутеров в строгом приоритетном порядке
+    # Регистрация хуков жизненного цикла aiogram
+    dp.startup.register(on_startup)
+    dp.shutdown.register(on_shutdown)
+
+    # Подключение роутеров
     dp.include_router(admin.router)
     dp.include_router(group_settings.router)
     dp.include_router(settings.router)
     dp.include_router(start.router)
     dp.include_router(schedule.router)
 
-    # Инициализация кэша и веб-сервера
-    await on_startup(bot)
-    web_runner = await start_dummy_webserver()
+    # Инициализация веб-приложения aiohttp
+    app = web.Application()
 
-    # Запуск фоновых задач
-    sync_task = asyncio.create_task(schedule_auto_sync_task(bot))
-    notify_task = asyncio.create_task(morning_notifications_loop(bot))
+    # Healthcheck маршруты
+    app.router.add_get("/", handle_ping)
+    app.router.add_get("/health", handle_ping)
 
-    logger.info("Бот успешно запущен в режиме Polling...")
-    try:
-        await bot.delete_webhook(drop_pending_updates=True)
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
-    finally:
-        logger.info("🛑 Остановка бота, завершение фоновых задач и освобождение ресурсов...")
-        
-        sync_task.cancel()
-        notify_task.cancel()
-        await asyncio.gather(sync_task, notify_task, return_exceptions=True)
+    # Регистрация обработчика входящих вебхуков aiogram
+    webhook_requests_handler = SimpleRequestHandler(
+        dispatcher=dp,
+        bot=bot,
+        secret_token=WEBHOOK_SECRET,
+    )
+    webhook_requests_handler.register(app, path=WEBHOOK_PATH)
 
-        if web_runner:
-            await web_runner.cleanup()
-        await api_client.close()
-        await bot.session.close()
-        await engine.dispose()
-        logger.info("✅ Все сетевые сессии и пулы соединений БД успешно закрыты")
+    setup_application(app, dp, bot=bot)
+
+    logger.info(f"🚀 Запуск веб-сервера на порту {WEB_SERVER_PORT}...")
+    web.run_app(app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT)
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        main()
     except (KeyboardInterrupt, SystemExit):
         logger.info("Бот штатно остановлен")
