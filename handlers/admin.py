@@ -11,6 +11,9 @@ from models import User, Group, Lesson, Week, Chat
 from services.schedule_cache import schedule_cache
 from config import ADMIN_IDS, logger
 from services.api_client import sync_all_courses, LAST_SYNC_INFO
+import html
+from sqlalchemy import select, func
+from models import User, Group, Chat
 
 router = Router()
 
@@ -106,7 +109,9 @@ async def cmd_admin_stats(message: Message):
 async def cmd_admin_allstats(message: Message):
     async with async_session_maker() as session:
         # Загружаем все группы
-        groups_res = await session.execute(select(Group).order_by(Group.course.asc(), Group.number.asc()))
+        groups_res = await session.execute(
+            select(Group).order_by(Group.course.asc(), Group.number.asc())
+        )
         all_groups = groups_res.scalars().all()
 
         # Считаем пользователей по группам
@@ -130,36 +135,47 @@ async def cmd_admin_allstats(message: Message):
             select(func.count(User.telegram_id)).where(User.group_id.is_(None))
         )
 
-    text = "📈 <b>Детальная статистика по курсам и группам:</b>\n\n"
+    total_students = sum(users_by_group.values())
+    total_chats = sum(chats_by_group.values())
 
+    # 1. Шапка со сводкой
+    header_text = (
+        f"📊 <b>Детальная статистика по факультету</b>\n\n"
+        f"👥 Всего студентов в группах: <b>{total_students}</b>\n"
+        f"💬 Всего бесед подключено: <b>{total_chats}</b>\n"
+        f"👤 Студентов без группы: <b>{unreg_users or 0}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━"
+    )
+    await message.answer(header_text)
+
+    # 2. Отправка каждого курса отдельным сообщением
     for course in range(1, 6):
         course_groups = [g for g in all_groups if g.course == course]
-        course_groups.sort(key=lambda x: int(x.number) if x.number.isdigit() else 999)
+        course_groups.sort(
+            key=lambda x: int(str(x.number)) if x.number and str(x.number).isdigit() else 999
+        )
+
+        if not course_groups:
+            continue
 
         total_course_users = sum(users_by_group.get(g.id, 0) for g in course_groups)
         total_course_chats = sum(chats_by_group.get(g.id, 0) for g in course_groups)
 
-        text += f"🎓 <b>{course} КУРС</b> (Всего: <b>{total_course_users}</b> студ. | <b>{total_course_chats}</b> бесед)\n"
-        
-        if not course_groups:
-            text += "<i>Группы не загружены</i>\n"
-        else:
-            for g in course_groups:
-                u_cnt = users_by_group.get(g.id, 0)
-                c_cnt = chats_by_group.get(g.id, 0)
-                chat_tag = f" | 💬 {c_cnt} бесед." if c_cnt > 0 else ""
-                text += f"• Гр. <b>{g.number}</b> ({g.name}): <b>{u_cnt}</b> студ.{chat_tag}\n"
-        
-        text += "\n"
+        course_text = (
+            f"🎓 <b>{course} КУРС</b> (Студентов: <b>{total_course_users}</b> | Бесед: <b>{total_course_chats}</b>):\n\n"
+        )
 
-    text += f"👤 <b>Студенты без группы / не завершили регистрацию:</b> <b>{unreg_users or 0}</b>"
+        for g in course_groups:
+            u_cnt = users_by_group.get(g.id, 0)
+            c_cnt = chats_by_group.get(g.id, 0)
+            chat_tag = f" | 💬 {c_cnt} бесед." if c_cnt > 0 else ""
+            
+            safe_num = html.escape(str(g.number))
+            safe_name = html.escape(g.name or "Без названия")
+            
+            course_text += f"• Гр. <b>{safe_num}</b> ({safe_name}): <b>{u_cnt}</b> студ.{chat_tag}\n"
 
-    # Защита от лимита Telegram в 4096 символов
-    if len(text) > 4000:
-        for chunk in [text[i:i + 4000] for i in range(0, len(text), 4000)]:
-            await message.answer(chunk)
-    else:
-        await message.answer(text)
+        await message.answer(course_text)
 
 
 @router.message(Command("sync"))
