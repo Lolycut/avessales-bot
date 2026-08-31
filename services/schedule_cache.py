@@ -1,12 +1,12 @@
 import re
-from collections import defaultdict
+from collections import defaultdict, Counter
 from datetime import date, timedelta
 from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Group, Week, Lesson
-from services.dto import GroupDTO, WeekDTO, LessonDTO, TeacherSlotDTO
+from services.dto import GroupDTO, WeekDTO, LessonDTO, TeacherSlotDTO, SubjectSlotDTO
 from services.subject_dict import SUBJECT_ALIASES, extract_subject_from_query
 from config import logger
 
@@ -269,34 +269,89 @@ class ScheduleCache:
 
         lessons_list: list[TeacherSlotDTO] = []
         for item in grouped_slots.values():
+            item.groups.sort()
             item.groups_display = ", ".join(item.groups)
             lessons_list.append(item)
 
         return display_name, actual_monday, lessons_list
 
-    def find_subject_lessons_for_group(
-        self, 
-        group_id: int, 
-        course: int, 
-        target_date: date, 
-        canon_subject: str, 
+    def find_subject_schedule(
+        self,
+        query_course: int | None,
+        target_date: date,
+        canon_subject: str,
         raw_word: str
-    ) -> tuple[date, list[LessonDTO]]:
-        actual_monday, all_lessons = self.get_lessons_for_group(group_id, course, target_date)
-        if not all_lessons:
-            return actual_monday, []
-
+    ) -> tuple[str, date, list[SubjectSlotDTO]] | None:
         aliases = SUBJECT_ALIASES.get(canon_subject, [canon_subject, raw_word])
         aliases_lower = [a.lower() for a in aliases] + [canon_subject.lower(), raw_word.lower()]
 
-        matched: list[LessonDTO] = []
-        for l in all_lessons:
-            subj_lower = l.subject.lower()
-            if any(a in subj_lower for a in aliases_lower):
-                matched.append(l)
+        def is_match(subj: str) -> bool:
+            subj_l = subj.lower()
+            return any(a in subj_l for a in aliases_lower)
 
-        matched.sort(key=lambda x: (x.day, x.slot_id, x.subgroup or 0))
-        return actual_monday, matched
+        monday = target_date - timedelta(days=target_date.weekday())
+        all_courses = sorted(list(self._weeks_by_course.keys()))
+        courses_to_search = [query_course] if (query_course and query_course in self._weeks_by_course) else all_courses
+
+        def collect_records(courses: list[int]) -> tuple[date, list[tuple[LessonDTO, GroupDTO, WeekDTO]]]:
+            matched: list[tuple[LessonDTO, GroupDTO, WeekDTO]] = []
+            act_m = monday
+            for c in courses:
+                weeks = self._weeks_by_course.get(c, [])
+                target_w = next((w for w in weeks if w.start_date == monday), None)
+                if not target_w and weeks:
+                    target_w = weeks[0]
+                if not target_w:
+                    continue
+                act_m = target_w.start_date
+
+                groups_in_course = self.get_all_groups_for_course(c)
+                for g in groups_in_course:
+                    lessons = self._lessons_by_group_week.get((g.id, target_w.id), [])
+                    for l in lessons:
+                        if is_match(l.subject):
+                            matched.append((l, g, target_w))
+            return act_m, matched
+
+        actual_monday, records = collect_records(courses_to_search)
+        if not records and courses_to_search != all_courses:
+            actual_monday, records = collect_records(all_courses)
+
+        if not records:
+            return None
+
+        # Красивое название дисциплины из найденных в расписании
+        subject_names = [r[0].subject for r in records]
+        display_title = Counter(subject_names).most_common(1)[0][0] if subject_names else canon_subject.capitalize()
+
+        grouped_slots: dict[tuple, SubjectSlotDTO] = {}
+        for lesson, group, week in records:
+            g_tag = f"{group.course}-{group.number}" if group else "?"
+            key = (lesson.day, lesson.slot_id, lesson.teacher, lesson.lesson_type, lesson.room, lesson.subgroup)
+
+            if key not in grouped_slots:
+                grouped_slots[key] = SubjectSlotDTO(
+                    day=lesson.day,
+                    slot_id=lesson.slot_id,
+                    teacher=lesson.teacher,
+                    lesson_type=lesson.lesson_type,
+                    room=lesson.room,
+                    address=lesson.address,
+                    subgroup=lesson.subgroup,
+                    groups=[g_tag],
+                    subject_name=lesson.subject
+                )
+            else:
+                if g_tag not in grouped_slots[key].groups:
+                    grouped_slots[key].groups.append(g_tag)
+
+        lessons_list: list[SubjectSlotDTO] = []
+        for item in grouped_slots.values():
+            item.groups.sort()
+            item.groups_display = ", ".join(item.groups)
+            lessons_list.append(item)
+
+        return display_title, actual_monday, lessons_list
 
 
 schedule_cache = ScheduleCache()

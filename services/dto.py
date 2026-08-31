@@ -48,6 +48,20 @@ class TeacherSlotDTO:
 
 
 @dataclass(slots=True)
+class SubjectSlotDTO:
+    day: int
+    slot_id: int
+    teacher: str | None
+    lesson_type: str
+    room: str | None
+    address: str | None
+    subgroup: int | None
+    groups: list[str] = field(default_factory=list)
+    groups_display: str = ""
+    subject_name: str = ""
+
+
+@dataclass(slots=True)
 class ScheduleChangeDTO:
     day: int
     slot_id: int

@@ -14,6 +14,7 @@ from services.formatter import (
     build_native_rich_schedule, 
     format_full_week_rich_message, 
     format_teacher_rich_schedule,
+    format_subject_rich_schedule,
     short_name,
     TIMESLOTS, 
     DAYS_NAMES
@@ -21,7 +22,6 @@ from services.formatter import (
 from services.query_parser import parse_schedule_query
 from keyboards import week_nav_kb
 from config import get_minsk_now
-from services.formatter import build_subject_rich_schedule
 
 router = Router()
 
@@ -205,21 +205,25 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
             await message.answer("⚠️ Группа не найдена. Пройдите регистрацию заново: /start")
         return
 
-    # 3.5. Поиск пар по конкретному предмету на неделю
+    # 3.5. Поиск пар по конкретному предмету на неделю (вид как у преподавателя)
     if parsed["type"] == "subject":
-        actual_monday, subject_lessons = schedule_cache.find_subject_lessons_for_group(
-            group_id=group.id,
-            course=group.course,
+        subject_match = schedule_cache.find_subject_schedule(
+            query_course=group.course if group else None,
             target_date=parsed["date"],
             canon_subject=parsed["canon_subject"],
             raw_word=parsed["raw_subject_word"]
         )
 
-        rich_msg = build_subject_rich_schedule(
-            group_name=f"{group.course}-{group.number} ({group.name})",
-            subject_title=parsed["canon_subject"],
+        if not subject_match:
+            await message.answer(f"🌴 На этой неделе пар по предмету «<b>{parsed['canon_subject']}</b>» не найдено!")
+            return
+
+        subject_title, actual_monday, subject_slots = subject_match
+
+        rich_msg = format_subject_rich_schedule(
+            subject_title=subject_title,
             start_monday=actual_monday,
-            lessons=subject_lessons
+            lessons_data=subject_slots
         )
         await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg)
         return
@@ -281,7 +285,6 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
                 f"{teacher_str}"
             )
         else:
-            # Если есть несколько подгрупп/вариантов в одном слоте
             items = []
             for idx, l in enumerate(matched, 1):
                 room_str = f"🚪 <b>ауд. {l.room}</b>" if l.room else "🚪 <i>ауд. ?</i>"
