@@ -132,7 +132,7 @@ async def cmd_admin_allstats(message: Message):
 
     text = "📈 <b>Детальная статистика по курсам и группам:</b>\n\n"
 
-    for course in range(1, 5):
+    for course in range(1, 6):
         course_groups = [g for g in all_groups if g.course == course]
         course_groups.sort(key=lambda x: int(x.number) if x.number.isdigit() else 999)
 
@@ -164,7 +164,7 @@ async def cmd_admin_allstats(message: Message):
 
 @router.message(Command("sync"))
 async def cmd_force_sync(message: Message, bot: Bot):
-    msg = await message.answer("⏳ Синхронизирую все 4 курса с bio.bsu.by...")
+    msg = await message.answer("⏳ Синхронизирую все 5 курсов с bio.bsu.by...")
     
     try:
         async with async_session_maker() as session:

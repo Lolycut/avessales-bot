@@ -37,6 +37,9 @@ def courses_kb() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="3️⃣ курс", callback_data="sel_course_3"),
                 InlineKeyboardButton(text="4️⃣ курс", callback_data="sel_course_4")
+            ],
+            [
+                InlineKeyboardButton(text="5️⃣ курс", callback_data="sel_course_5")
             ]
         ]
     )
@@ -113,6 +116,9 @@ def group_chat_courses_kb(chat_id: int) -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="3️⃣ курс", callback_data=f"g_crs_{chat_id}_3"),
                 InlineKeyboardButton(text="4️⃣ курс", callback_data=f"g_crs_{chat_id}_4")
+            ],
+            [
+                InlineKeyboardButton(text="5️⃣ курс", callback_data=f"g_crs_{chat_id}_5")
             ],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"g_back_{chat_id}")]
         ]

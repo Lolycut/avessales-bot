@@ -1,5 +1,7 @@
+import re
 from datetime import date, timedelta
 from collections import defaultdict
+
 from services.dto import LessonDTO, TeacherSlotDTO, ScheduleChangeDTO
 from aiogram.types import (
     InputRichMessage,
@@ -32,6 +34,12 @@ DAYS_NAMES = [
     "Суббота",
     "Воскресенье",
 ]
+
+
+def clean_html(raw_text: str | None) -> str:
+    if not raw_text:
+        return ""
+    return re.sub(r"<[^>]+>", "", str(raw_text)).strip()
 
 
 def short_name(full_name: str | None) -> str:
@@ -309,7 +317,6 @@ def build_schedule_changes_rich_message(
         )
     ]
 
-    # Группируем изменения по дням недели
     by_days = defaultdict(list)
     for ch in changes:
         by_days[ch.day].append(ch)
@@ -326,26 +333,50 @@ def build_schedule_changes_rich_message(
             )
         )
 
+        rows = [[
+            RichBlockTableCell(text=RichTextBold(text="Статус"), is_header=True, align="center", valign="middle"),
+            RichBlockTableCell(text=RichTextBold(text="Пара"), is_header=True, align="center", valign="middle"),
+            RichBlockTableCell(text=RichTextBold(text="Ауд."), is_header=True, align="center", valign="middle"),
+            RichBlockTableCell(text=RichTextBold(text="Предмет и детали"), is_header=True, align="left", valign="middle"),
+        ]]
+
         for ch in day_changes:
             slot_info = TIMESLOTS.get(ch.slot_id, {"order": str(ch.slot_id), "time": "--:--"})
-            sub_str = f" [п/г {ch.subgroup}]" if ch.subgroup else ""
+            start_time = slot_info["time"].split(" - ")[0]
+            sub_str = f" (п/г {ch.subgroup})" if ch.subgroup else ""
+            type_str = f" [{clean_html(ch.lesson_type)}]" if ch.lesson_type else ""
+            clean_subj = clean_html(ch.subject)
 
-            if ch.change_type == "modified":
-                icon = "🔄"
-                title = f"{icon} <b>{slot_info['order']} пара ({slot_info['time']}):</b> {ch.subject} [{ch.lesson_type}]{sub_str}"
-                details_text = "\n".join([f"  • {d}" for d in ch.details])
-                item_text = f"{title}\n{details_text}"
+            if ch.change_type == "added":
+                status_text = "➕ Новая"
+                room_text = clean_html(ch.room) or "—"
+                details_clean = [clean_html(d) for d in ch.details]
+                details_str = f" ({', '.join(details_clean)})" if details_clean else ""
+                info_text = f"{clean_subj}{type_str}{sub_str}{details_str}"
             elif ch.change_type == "removed":
-                icon = "❌"
-                item_text = f"{icon} <b>{slot_info['order']} пара ({slot_info['time']}):</b> {ch.subject} [{ch.lesson_type}]{sub_str} — <b>ОТМЕНЕНА</b>"
-            else:
-                icon = "➕"
-                title = f"{icon} <b>{slot_info['order']} пара ({slot_info['time']}):</b> {ch.subject} [{ch.lesson_type}]{sub_str} — <b>ДОБАВЛЕНА</b>"
-                details_text = "\n".join([f"  • {d}" for d in ch.details]) if ch.details else ""
-                item_text = f"{title}\n{details_text}" if details_text else title
+                status_text = "❌ Отмена"
+                room_text = "—"
+                info_text = f"{clean_subj}{type_str}{sub_str}"
+            else:  # modified
+                status_text = "🔄 Замена"
+                room_text = clean_html(ch.room) or "—"
+                details_clean = [clean_html(d) for d in ch.details]
+                details_str = f" ({', '.join(details_clean)})" if details_clean else ""
+                info_text = f"{clean_subj}{type_str}{sub_str}{details_str}"
 
-            blocks.append(
-                InputRichBlockParagraph(text=item_text)
+            rows.append([
+                RichBlockTableCell(text=RichTextBold(text=status_text), align="center", valign="middle"),
+                RichBlockTableCell(text=f"{slot_info['order']} ({start_time})", align="center", valign="middle"),
+                RichBlockTableCell(text=RichTextBold(text=room_text), align="center", valign="middle"),
+                RichBlockTableCell(text=info_text, align="left", valign="middle"),
+            ])
+
+        blocks.append(
+            InputRichBlockTable(
+                cells=rows,
+                is_bordered=True,
+                is_striped=True,
             )
+        )
 
     return InputRichMessage(blocks=blocks)

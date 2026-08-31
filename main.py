@@ -1,5 +1,6 @@
 import asyncio
 import os
+import random
 from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -39,23 +40,38 @@ async def start_dummy_webserver() -> web.AppRunner | None:
 async def schedule_auto_sync_task(bot: Bot):
     while True:
         try:
-            await asyncio.sleep(2 * 3600)
-            logger.info("⏰ Запуск периодического автообновления расписания...")
+            now = get_minsk_now()
+            # Активные учебные часы: Пн-Сб с 07:30 до 20:00
+            is_active_hours = (
+                now.weekday() <= 5 and 
+                (7 <= now.hour < 20 or (now.hour == 7 and now.minute >= 30))
+            )
+            
+            # Рандомизация интервала для органичного поведения
+            if is_active_hours:
+                interval = random.randint(240, 360)   # 4 - 6 минут
+            else:
+                interval = random.randint(1800, 2400) # 30 - 40 минут
+
+            await asyncio.sleep(interval)
+            
             async with async_session_maker() as session:
-                # В фоновой задаче передаем bot=bot для автоматической рассылки найденных изменений
-                await sync_all_courses(session, target_date=get_minsk_now().date(), bot=bot)
-                await schedule_cache.reload_from_db(session)
-            logger.info("✅ Фоновое расписание успешно обновлено в БД и кэше!")
+                res = await sync_all_courses(session, target_date=get_minsk_now().date(), bot=bot)
+                # Если найдены изменения, обновляем данные в оперативной памяти
+                if res.get("changes_count", 0) > 0:
+                    await schedule_cache.reload_from_db(session)
+                    logger.info(f"⚡ [Watchdog] Обнаружено и разослано {res['changes_count']} изменений в расписании!")
+
         except asyncio.CancelledError:
             break
         except Exception as e:
-            logger.error(f"❌ Ошибка фонового обновления расписания: {e}")
+            logger.error(f"❌ Ошибка фонового сторожа расписания: {e}")
 
 
 async def on_startup(bot: Bot):
     logger.info("🔄 Инициализация приложения и загрузка данных...")
     
-    # 0. Автоматическое создание недостающих таблиц (например, chats)
+    # 0. Автоматическое создание недостающих таблиц
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -68,7 +84,7 @@ async def on_startup(bot: Bot):
         except Exception as e:
             logger.warning(
                 f"⚠️ Не удалось связаться с bio.bsu.by при старте: {e}. "
-                f"Бот продолжит работу на существующих данных из PostgreSQL."
+                f"Бот продолжит работу на существующих данных из PostgreSQL"
             )
 
         # 2. Загрузка In-Memory кэша

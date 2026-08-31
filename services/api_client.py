@@ -23,12 +23,25 @@ LAST_SYNC_INFO: dict[str, Any] = {
     "timestamp": None,
     "success": True,
     "errors": [],
-    "total_lessons_saved": 0
+    "total_lessons_saved": 0,
+    "changes_count": 0,
+    "changed_groups": []
 }
 
 
 def get_current_date() -> date:
     return get_minsk_now().date()
+
+
+def short_name(full_name: str | None) -> str:
+    if not full_name:
+        return "—"
+    parts = full_name.strip().split()
+    if len(parts) >= 3:
+        return f"{parts[0]} {parts[1][0]}.{parts[2][0]}."
+    elif len(parts) == 2:
+        return f"{parts[0]} {parts[1][0]}."
+    return full_name
 
 
 class BioBSUApiClient:
@@ -153,7 +166,6 @@ def calculate_schedule_diff(
 ) -> dict[int, list[ScheduleChangeDTO]]:
     changes_by_group: dict[int, list[ScheduleChangeDTO]] = defaultdict(list)
 
-    # Группируем по (group_id)
     old_by_grp = defaultdict(dict)
     for l in old_lessons:
         key = (l.day, l.slot_id, l.subgroup)
@@ -170,7 +182,7 @@ def calculate_schedule_diff(
         old_dict = old_by_grp.get(g_id, {})
         new_dict = new_by_grp.get(g_id, {})
 
-        # Если старых записей вообще не было (первый запуск/чистая БД) — не спамим изменениями
+        # Если старых записей вообще не было (холодный старт) — не спамим изменениями
         if not old_dict:
             continue
 
@@ -180,7 +192,7 @@ def calculate_schedule_diff(
             old_l = old_dict.get((day, slot_id, subgroup))
             new_l = new_dict.get((day, slot_id, subgroup))
 
-            # 1. Пара была, но теперь пропала (Отмена)
+            # 1. Отмена пары
             if old_l and not new_l:
                 changes_by_group[g_id].append(
                     ScheduleChangeDTO(
@@ -189,16 +201,16 @@ def calculate_schedule_diff(
                         subgroup=subgroup,
                         change_type="removed",
                         subject=old_l.subject,
-                        lesson_type=old_l.lesson_type
+                        lesson_type=old_l.lesson_type,
+                        room=old_l.room,
+                        teacher=old_l.teacher
                     )
                 )
-            # 2. Появилась новая пара
+            # 2. Добавление новой пары
             elif not old_l and new_l:
                 details = []
-                if new_l.room:
-                    details.append(f"Ауд: <b>{new_l.room}</b>")
                 if new_l.teacher:
-                    details.append(f"Преподаватель: <i>{new_l.teacher}</i>")
+                    details.append(f"Преп. {short_name(new_l.teacher)}")
 
                 changes_by_group[g_id].append(
                     ScheduleChangeDTO(
@@ -208,20 +220,22 @@ def calculate_schedule_diff(
                         change_type="added",
                         subject=new_l.subject,
                         lesson_type=new_l.lesson_type,
+                        room=new_l.room,
+                        teacher=new_l.teacher,
                         details=details
                     )
                 )
-            # 3. Пара есть и там и там — проверяем на изменения
+            # 3. Изменение существующей пары
             elif old_l and new_l:
                 diffs = []
                 if old_l.subject != new_l.subject:
-                    diffs.append(f"Предмет: <s>{old_l.subject}</s> ➔ <b>{new_l.subject}</b>")
+                    diffs.append(f"Предмет: {old_l.subject} ➔ {new_l.subject}")
                 if old_l.lesson_type != new_l.lesson_type:
-                    diffs.append(f"Тип: <s>{old_l.lesson_type}</s> ➔ <b>{new_l.lesson_type}</b>")
+                    diffs.append(f"Тип: {old_l.lesson_type} ➔ {new_l.lesson_type}")
                 if (old_l.room or "—") != (new_l.room or "—"):
-                    diffs.append(f"Аудитория: <s>{old_l.room or '—'}</s> ➔ <b>{new_l.room or '—'}</b>")
+                    diffs.append(f"Ауд: {old_l.room or '—'} ➔ {new_l.room or '—'}")
                 if (old_l.teacher or "—") != (new_l.teacher or "—"):
-                    diffs.append(f"Преподаватель: <s>{old_l.teacher or '—'}</s> ➔ <i>{new_l.teacher or '—'}</i>")
+                    diffs.append(f"Преп: {short_name(old_l.teacher)} ➔ {short_name(new_l.teacher)}")
 
                 if diffs:
                     changes_by_group[g_id].append(
@@ -232,6 +246,8 @@ def calculate_schedule_diff(
                             change_type="modified",
                             subject=new_l.subject,
                             lesson_type=new_l.lesson_type,
+                            room=new_l.room or old_l.room,
+                            teacher=new_l.teacher or old_l.teacher,
                             details=diffs
                         )
                     )
@@ -263,7 +279,7 @@ async def sync_schedule_to_db(
     raw_lessons = await api_client.fetch_schedule(week_id=week_id, course=course, study_mode=study_mode)
     
     if raw_lessons is None:
-        logger.warning(f"⚠️ Не удалось получить расписание для week_id={week_id}. База не изменена.")
+        logger.warning(f"⚠️ Не удалось получить расписание для week_id={week_id}. База не изменена")
         return 0, {}
 
     new_lessons = []
@@ -306,14 +322,18 @@ async def sync_schedule_to_db(
     diff_results = calculate_schedule_diff(old_lessons, new_lessons)
     formatted_diffs = {g_id: (monday, changes) for g_id, changes in diff_results.items() if changes}
 
-    # Удаляем старые записи и сохраняем новые
+    # ОПТИМИЗАЦИЯ: если расписание не изменилось — базу не перезаписываем
+    if old_lessons and not formatted_diffs and len(old_lessons) == len(new_lessons):
+        return len(new_lessons), {}
+
+    # Если есть изменения или это новая неделя — обновляем БД
     await session.execute(delete(Lesson).where(Lesson.week_id == week_id))
     
     if new_lessons:
         session.add_all(new_lessons)
         
     await session.commit()
-    logger.info(f"✅ Сохранено {len(new_lessons)} пар ({course} курс, week_id={week_id})")
+    logger.info(f"✅ Обновлено {len(new_lessons)} пар ({course} курс, week_id={week_id})")
 
     return len(new_lessons), formatted_diffs
 
@@ -325,11 +345,11 @@ async def sync_all_courses(session: AsyncSession, target_date: date | None = Non
     next_week = target_date + timedelta(days=7)
     after_next_week = target_date + timedelta(days=14)
 
-    # 1. Синхронизируем группы
-    for c in range(1, 5):
+    # 1. Синхронизируем группы (1 - 5 курс)
+    for c in range(1, 6):
         try:
             await sync_groups_to_db(session, course=c)
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.1)
         except Exception as e:
             await session.rollback()
             logger.error(f"Ошибка синхронизации групп {c} курса: {e}")
@@ -337,11 +357,11 @@ async def sync_all_courses(session: AsyncSession, target_date: date | None = Non
     groups_res = await session.execute(select(Group.id))
     valid_group_ids = set(groups_res.scalars().all())
 
-    # 2. Синхронизируем расписание и собираем все изменения
+    # 2. Синхронизируем расписание по 5 курсам с мягкой паузой (0.25с)
     total_lessons = 0
     all_detected_changes: dict[int, tuple[date, list[ScheduleChangeDTO]]] = {}
 
-    for c in range(1, 5):
+    for c in range(1, 6):
         for target_w in (target_date, next_week, after_next_week):
             try:
                 count, diffs = await sync_schedule_to_db(session, valid_group_ids, target_date=target_w, course=c)
@@ -351,12 +371,14 @@ async def sync_all_courses(session: AsyncSession, target_date: date | None = Non
                         all_detected_changes[g_id][1].extend(ch)
                     else:
                         all_detected_changes[g_id] = (m, list(ch))
-                await asyncio.sleep(0.05)
+                
+                # Мягкая задержка между запросами для естественного поведения
+                await asyncio.sleep(0.25)
             except Exception as e:
                 await session.rollback()
                 logger.error(f"Ошибка синхронизации расписания {c} курса: {e}")
 
-    # 3. Если передан бот и есть изменения — рассылаем уведомления студентам и в беседы
+    # 3. Если передан bot и есть изменения — рассылаем уведомления
     if bot and all_detected_changes:
         asyncio.create_task(dispatch_schedule_changes(bot, all_detected_changes))
 
