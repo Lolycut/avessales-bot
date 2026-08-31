@@ -14,12 +14,14 @@ from services.formatter import (
     build_native_rich_schedule, 
     format_full_week_rich_message, 
     format_teacher_rich_schedule,
+    short_name,
     TIMESLOTS, 
     DAYS_NAMES
 )
 from services.query_parser import parse_schedule_query
 from keyboards import week_nav_kb
 from config import get_minsk_now
+from services.formatter import build_subject_rich_schedule
 
 router = Router()
 
@@ -91,13 +93,11 @@ async def callback_switch_week_by_date(callback: CallbackQuery, bot: Bot):
 
     is_group_chat = callback.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
 
-    # Если group_id и subgroup были закодированы в кнопке (для сторонних или личных групп)
     if len(parts) >= 3 and parts[1].isdigit():
         group_id = int(parts[1])
         target_subgroup = int(parts[2]) if parts[2].isdigit() else 0
         user_name = callback.message.chat.title if is_group_chat else (callback.from_user.first_name or "Студент")
     else:
-        # Fallback для старых инлайн-кнопок
         async with async_session_maker() as session:
             if is_group_chat:
                 chat_obj = await session.get(Chat, callback.message.chat.id)
@@ -205,6 +205,25 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
             await message.answer("⚠️ Группа не найдена. Пройдите регистрацию заново: /start")
         return
 
+    # 3.5. Поиск пар по конкретному предмету на неделю
+    if parsed["type"] == "subject":
+        actual_monday, subject_lessons = schedule_cache.find_subject_lessons_for_group(
+            group_id=group.id,
+            course=group.course,
+            target_date=parsed["date"],
+            canon_subject=parsed["canon_subject"],
+            raw_word=parsed["raw_subject_word"]
+        )
+
+        rich_msg = build_subject_rich_schedule(
+            group_name=f"{group.course}-{group.number} ({group.name})",
+            subject_title=parsed["canon_subject"],
+            start_monday=actual_monday,
+            lessons=subject_lessons
+        )
+        await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg)
+        return
+
     # 4. Расписание на неделю
     if parsed["type"] == "week":
         await send_week_schedule(
@@ -236,6 +255,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
             if l.day == parsed["day_index"] and l.slot_id == slot_id and 
             (l.subgroup is None or l.subgroup == target_subgroup or target_subgroup == 0)
         ]
+        matched.sort(key=lambda x: x.subgroup or 0)
         
         slot_info = TIMESLOTS.get(slot_id, {"order": f"{slot_id}️⃣", "time": "--:--"})
         if not matched:
@@ -243,19 +263,41 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
             await message.answer(f"🌴 <b>{day_name} ({formatted_date})</b> | {group.name}\nУ вас {status}!")
             return
             
-        l = matched[0]
-        room_str = f"🚪 <b>ауд. {l.room}</b>" if l.room else "🚪 <i>ауд. ?</i>"
-        loc_str = f"{room_str} ⚠️ <b>({l.address}) — ВЫЕЗД!</b>" if l.address and "курчатова" not in l.address.lower() else room_str
-        teacher_str = f"👤 <i>{l.teacher}</i>" if l.teacher else "👤 <i>Преподаватель не указан</i>"
-        sub_tag = f" [Подгруппа {l.subgroup}]" if l.subgroup else ""
         prefix = f"⚡ <b>Пара ({group.number} группа):</b>\n" if parsed["type"] == "current" else ""
+        header = f"{prefix}📍 <b>{day_name} ({formatted_date})</b> | {slot_info['order']} пара ({group.number} гр.)\n⏰ <b>{slot_info['time']}</b>\n"
 
-        text = (
-            f"{prefix}📍 <b>{day_name} ({formatted_date})</b> | {slot_info['order']} пара ({group.number} гр.)\n"
-            f"⏰ <b>{slot_info['time']}</b> | {loc_str}\n"
-            f"📚 <b>{l.subject} ({l.lesson_type}){sub_tag}</b>\n"
-            f"{teacher_str}"
-        )
+        if len(matched) == 1:
+            l = matched[0]
+            room_str = f"🚪 <b>ауд. {l.room}</b>" if l.room else "🚪 <i>ауд. ?</i>"
+            loc_str = f"{room_str} ⚠️ <b>({l.address}) — ВЫЕЗД!</b>" if l.address and "курчатова" not in l.address.lower() else room_str
+            teacher_name = l.teacher if l.teacher else "Преподаватель не указан"
+            teacher_str = f"👤 <i>{teacher_name}</i>"
+            sub_tag = f" [Подгруппа {l.subgroup}]" if l.subgroup else ""
+
+            text = (
+                f"{header}"
+                f"📍 {loc_str}\n"
+                f"📚 <b>{l.subject} ({l.lesson_type}){sub_tag}</b>\n"
+                f"{teacher_str}"
+            )
+        else:
+            # Если есть несколько подгрупп/вариантов в одном слоте
+            items = []
+            for idx, l in enumerate(matched, 1):
+                room_str = f"🚪 <b>ауд. {l.room}</b>" if l.room else "🚪 <i>ауд. ?</i>"
+                loc_str = f"{room_str} ⚠️ <b>({l.address}) — ВЫЕЗД!</b>" if l.address and "курчатова" not in l.address.lower() else room_str
+                teacher_name = l.teacher if l.teacher else "Преподаватель не указан"
+                sub_badge = f"<b>[{l.subgroup}-я подгруппа]</b>" if l.subgroup else f"<b>[Вариант {idx}]</b>"
+
+                item_text = (
+                    f"{sub_badge} | {loc_str}\n"
+                    f"📚 <b>{l.subject} ({l.lesson_type})</b>\n"
+                    f"👤 <i>{teacher_name}</i>"
+                )
+                items.append(item_text)
+
+            text = header + "\n" + "\n────────────────────\n".join(items)
+
         await message.answer(text)
         return
 

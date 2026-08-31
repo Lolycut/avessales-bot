@@ -2,6 +2,7 @@ import re
 from datetime import timedelta
 from typing import Any
 from config import get_minsk_now
+from services.subject_dict import extract_subject_from_query
 
 DAY_TARGETS_MAP = {
     "пн": 0, "пон": 0, "понедельник": 0, "понедельнику": 0, "понедельника": 0, "понедельнике": 0, "понедельнек": 0,
@@ -34,7 +35,6 @@ GENERAL_SCHEDULE_KEYWORDS = {
     "занятия", "занятий", "уроки", "уроков"
 }
 
-# Регулярка для поиска фраз о текущей аудитории / местоположении
 CURRENT_LOCATION_REGEX = re.compile(
     r"\b("
     r"где\s+мы(?:\s+сейчас|\s+щас)?"
@@ -66,7 +66,7 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
     today = get_minsk_now().date()
     clean_text = text.lower().strip()
 
-    # 1. Поиск чужой группы (1-41, 2-42)
+    # 1. Поиск группы (1-41, 2-49)
     target_group = None
     group_match = GROUP_REGEX.search(clean_text)
     if group_match:
@@ -75,7 +75,19 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
         target_group = {"course": course, "group_number": group_num}
         clean_text = clean_text[:group_match.start()] + " " + clean_text[group_match.end():]
 
-    # 2. Недельный запрос
+    # 2. Поиск предмета (дисциплины)
+    subj_match = extract_subject_from_query(clean_text)
+    if subj_match:
+        canon_name, raw_word = subj_match
+        return {
+            "type": "subject",
+            "canon_subject": canon_name,
+            "raw_subject_word": raw_word,
+            "date": today,
+            "target_group": target_group,
+        }
+
+    # 3. Недельный запрос
     is_next_week = any(w in clean_text for w in ["след", "следующ", "будущ", "next"])
     is_week_query = any(w in clean_text for w in ["неделю", "неделя", "неделе", "недели"])
 
@@ -90,10 +102,9 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
             "target_group": target_group,
         }
 
-    # 3. Проверка на запрос текущей пары / локации / аудитории через фразы
+    # 4. Запрос текущей пары / локации
     is_current_location_query = bool(CURRENT_LOCATION_REGEX.search(clean_text))
 
-    # 4. Поиск номера пары
     matched_slot_id = None
     pair_match = PAIR_REGEX.search(clean_text)
     if pair_match:
@@ -113,7 +124,6 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
         if w in GENERAL_SCHEDULE_KEYWORDS:
             has_general_trigger = True
 
-    # 5. Если сработал вопрос «где мы? / какая аудитория?» без указания другого дня или слота
     if is_current_location_query and matched_day_val is None and matched_slot_id is None:
         return {
             "type": "current",
@@ -122,7 +132,6 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
             "target_group": target_group,
         }
 
-    # 6. Если в сообщении нет явного намерения узнать расписание — игнорируем
     if (
         matched_day_val is None 
         and matched_slot_id is None 

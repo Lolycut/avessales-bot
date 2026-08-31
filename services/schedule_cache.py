@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Group, Week, Lesson
 from services.dto import GroupDTO, WeekDTO, LessonDTO, TeacherSlotDTO
+from services.subject_dict import SUBJECT_ALIASES, extract_subject_from_query
 from config import logger
 
 TEACHER_STOP_WORDS = {
@@ -28,34 +29,39 @@ TEACHER_STOP_WORDS = {
 }
 
 
+def _extract_surname(full_teacher_name: str) -> str:
+    clean = re.sub(
+        r"^(?:(?:ст\.\s*)?преп\.?|доц\.?|проф\.?|ассист\.?|акад\.?)\s+",
+        "",
+        full_teacher_name.strip(),
+        flags=re.IGNORECASE
+    )
+    parts = clean.split()
+    for p in parts:
+        word = re.sub(r"[^\w\-]", "", p)
+        if len(word) >= 3 and not re.match(r"^[А-ЯЁA-Z]\.?$", p):
+            return word.lower()
+    return parts[0].lower() if parts else ""
+
+
 def _match_teacher_surname(query_word: str, full_teacher_name: str) -> bool:
-    parts = full_teacher_name.strip().split()
-    if not parts:
-        return False
-    
-    # Ищем ТОЛЬКО по фамилии (первое слово ФИО)
-    surname = parts[0].lower()
-    q = query_word.lower()
+    surname = _extract_surname(full_teacher_name)
+    q = query_word.lower().strip()
 
     if len(q) < 3 or len(surname) < 3:
         return False
 
-    # 1. Точное совпадение
     if q == surname:
         return True
 
-    # 2. Если слово 3 буквы — только точное совпадение (защита от "там", "сам", "кто")
     if len(q) == 3 or len(surname) == 3:
         return q == surname
 
-    # 3. Для слов от 4 букв — поиск общего префикса (корня)
-    # Находим длину совпадающей начальной части слова
     common_len = 0
     min_l = min(len(q), len(surname))
     while common_len < min_l and q[common_len] == surname[common_len]:
         common_len += 1
 
-    # Корень должен быть не менее 4 символов и покрывать почти всю фамилию (допуская смену окончания 1-3 буквы)
     if common_len >= 4 and common_len >= (len(surname) - 3) and common_len >= (len(q) - 3):
         return True
 
@@ -90,7 +96,6 @@ class ScheduleCache:
     async def reload_from_db(self, session: AsyncSession) -> None:
         logger.info("🧠 [Cache] Загрузка данных из БД в In-Memory кэш...")
 
-        # 1. Загрузка групп
         groups_res = await session.execute(select(Group))
         db_groups = groups_res.scalars().all()
 
@@ -109,7 +114,6 @@ class ScheduleCache:
             new_groups_by_id[g.id] = dto
             new_groups_by_course_num[(g.course, clean_num)] = dto
 
-        # 2. Загрузка недель
         weeks_res = await session.execute(select(Week).order_by(Week.start_date.desc()))
         db_weeks = weeks_res.scalars().all()
 
@@ -126,7 +130,6 @@ class ScheduleCache:
             new_weeks_by_id[w.id] = dto
             new_weeks_by_course[w.course].append(dto)
 
-        # 3. Загрузка занятий
         lessons_res = await session.execute(select(Lesson))
         db_lessons = lessons_res.scalars().all()
 
@@ -158,7 +161,6 @@ class ScheduleCache:
                 if group_dto and week_dto:
                     new_teacher_records[teacher_clean].append((lesson_dto, group_dto, week_dto))
 
-        # 4. Атомарная подмена ссылок
         self._groups_by_id = new_groups_by_id
         self._groups_by_course_num = new_groups_by_course_num
         self._weeks_by_course = dict(new_weeks_by_course)
@@ -171,10 +173,6 @@ class ScheduleCache:
             f"✨ [Cache] Кэш готов: {len(self._groups_by_id)} групп, "
             f"{len(db_lessons)} пар, {len(self._teachers_list)} преподавателей."
         )
-
-    # ==========================================
-    # Быстрые методы чтения O(1)
-    # ==========================================
 
     def get_group_by_id(self, group_id: int) -> GroupDTO | None:
         return self._groups_by_id.get(group_id)
@@ -215,24 +213,28 @@ class ScheduleCache:
         if not words or not self._teachers_list:
             return None
 
-        matched_teacher: str | None = None
+        matched_teachers: list[str] = []
         for word in words:
             for t in self._teachers_list:
                 if _match_teacher_surname(word, t):
-                    matched_teacher = t
-                    break
-            if matched_teacher:
+                    if t not in matched_teachers:
+                        matched_teachers.append(t)
+            if matched_teachers:
                 break
 
-        if not matched_teacher:
+        if not matched_teachers:
             return None
 
-        records = self._teacher_records.get(matched_teacher, [])
+        records = []
+        for t in matched_teachers:
+            records.extend(self._teacher_records.get(t, []))
+
         if not records:
             return None
 
-        monday = target_date - timedelta(days=target_date.weekday())
+        display_name = max(matched_teachers, key=len)
 
+        monday = target_date - timedelta(days=target_date.weekday())
         target_records = [r for r in records if r[2].start_date == monday]
         actual_monday = monday
 
@@ -270,7 +272,31 @@ class ScheduleCache:
             item.groups_display = ", ".join(item.groups)
             lessons_list.append(item)
 
-        return matched_teacher, actual_monday, lessons_list
+        return display_name, actual_monday, lessons_list
+
+    def find_subject_lessons_for_group(
+        self, 
+        group_id: int, 
+        course: int, 
+        target_date: date, 
+        canon_subject: str, 
+        raw_word: str
+    ) -> tuple[date, list[LessonDTO]]:
+        actual_monday, all_lessons = self.get_lessons_for_group(group_id, course, target_date)
+        if not all_lessons:
+            return actual_monday, []
+
+        aliases = SUBJECT_ALIASES.get(canon_subject, [canon_subject, raw_word])
+        aliases_lower = [a.lower() for a in aliases] + [canon_subject.lower(), raw_word.lower()]
+
+        matched: list[LessonDTO] = []
+        for l in all_lessons:
+            subj_lower = l.subject.lower()
+            if any(a in subj_lower for a in aliases_lower):
+                matched.append(l)
+
+        matched.sort(key=lambda x: (x.day, x.slot_id, x.subgroup or 0))
+        return actual_monday, matched
 
 
 schedule_cache = ScheduleCache()
