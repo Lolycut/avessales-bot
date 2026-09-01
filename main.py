@@ -112,13 +112,6 @@ async def on_shutdown(bot: Bot):
     if background_tasks:
         await asyncio.gather(*background_tasks, return_exceptions=True)
 
-    # Удаление вебхука из Telegram
-    try:
-        await bot.delete_webhook()
-        logger.info("🌐 Вебхук успешно удален из Telegram")
-    except Exception as e:
-        logger.warning(f"⚠️ Ошибка при удалении вебхука: {e}")
-
     # Закрытие сессий и пулов
     await api_client.close()
     await bot.session.close()
