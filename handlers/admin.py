@@ -54,7 +54,7 @@ async def cmd_admin_stats(message: Message):
             select(func.count(User.telegram_id)).where(User.group_id.is_not(None))
         )
 
-        # Беседы (группы)
+        # Беседы
         total_chats = await session.scalar(select(func.count(Chat.chat_id)))
         active_chats = await session.scalar(
             select(func.count(Chat.chat_id)).where(Chat.is_active == True)
