@@ -77,30 +77,41 @@ def settings_subgroups_kb() -> InlineKeyboardMarkup:
 def week_nav_kb(
     current_monday: date, 
     group_id: int | None = None, 
-    subgroup: int | None = None
+    subgroup: int | None = None,
+    has_offcampus: bool = False
 ) -> InlineKeyboardMarkup:
     prev_monday = current_monday - timedelta(days=7)
     next_monday = current_monday + timedelta(days=7)
 
     prev_date_str = prev_monday.strftime("%Y-%m-%d")
     next_date_str = next_monday.strftime("%Y-%m-%d")
+    curr_date_str = current_monday.strftime("%Y-%m-%d")
+
+    sub_val = subgroup if subgroup is not None else 0
 
     if group_id is not None:
-        sub_val = subgroup if subgroup is not None else 0
         prev_cb = f"week_date_{prev_date_str}_{group_id}_{sub_val}"
         next_cb = f"week_date_{next_date_str}_{group_id}_{sub_val}"
+        loc_cb = f"week_loc_{curr_date_str}_{group_id}_{sub_val}"
     else:
         prev_cb = f"week_date_{prev_date_str}"
         next_cb = f"week_date_{next_date_str}"
+        loc_cb = f"week_loc_{curr_date_str}"
 
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="◀️ Пред. неделя", callback_data=prev_cb),
-                InlineKeyboardButton(text="След. неделя ▶️", callback_data=next_cb)
-            ]
+    buttons = [
+        [
+            InlineKeyboardButton(text="◀️ Пред. неделя", callback_data=prev_cb),
+            InlineKeyboardButton(text="След. неделя ▶️", callback_data=next_cb)
         ]
-    )
+    ]
+
+    # Если на этой неделе есть выездные пары — добавляем кнопку "Куда ехать?"
+    if has_offcampus:
+        buttons.append([
+            InlineKeyboardButton(text="🚗 Куда ехать? (Выезды ⚠️)", callback_data=loc_cb)
+        ])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 # ==========================================

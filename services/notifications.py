@@ -40,9 +40,14 @@ async def send_to_recipient(
         if not today_lessons:
             return False
 
+        # Формируем заголовок с курсом и группой
+        clean_num = str(group.number).strip()
+        group_tag = f"Гр. {clean_num}" if clean_num.startswith(f"{group.course}-") else f"Гр. {group.course}-{clean_num}"
+        group_title = f"{group_tag} • {group.name}"
+
         rich_card = build_native_rich_schedule(
             user_name=name,
-            group_name=group.name,
+            group_name=group_title,
             user_subgroup=subgroup,
             day_index=day_index,
             target_date=today,
