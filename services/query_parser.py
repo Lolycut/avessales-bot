@@ -35,6 +35,11 @@ GENERAL_SCHEDULE_KEYWORDS = {
     "занятия", "занятий", "уроки", "уроков"
 }
 
+QUERY_INTENT_WORDS = {
+    "что", "где", "куда", "какая", "какой", "какие", "когда", "че", "во сколько", 
+    "скинь", "подскажи", "покажи", "будет", "будут", "есть"
+}
+
 CURRENT_LOCATION_REGEX = re.compile(
     r"\b("
     r"где\s+мы(?:\s+сейчас|\s+щас)?"
@@ -70,6 +75,7 @@ COURSE_REGEX = re.compile(
 def parse_schedule_query(text: str) -> dict[str, Any] | None:
     today = get_minsk_now().date()
     clean_text = text.lower().strip()
+    words_count = len(clean_text.split())
 
     # 1. Поиск группы вида 2-41, 1-42
     target_group = None
@@ -87,9 +93,13 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
         target_course = int(course_match.group(1))
         clean_text = clean_text[:course_match.start()] + " " + clean_text[course_match.end():]
 
-    # 3. Недельный запрос
+    # 3. Недельный запрос (только при наличии расписания или коротком запросе)
     is_next_week = any(w in clean_text for w in ["след", "следующ", "будущ", "next"])
-    is_week_query = any(w in clean_text for w in ["неделю", "неделя", "неделе", "недели"])
+    has_week_word = any(w in clean_text.split() for w in ["неделю", "неделя", "неделе", "недели"])
+    is_week_query = has_week_word and (
+        words_count <= 3 
+        or any(w in clean_text for w in ["расписание", "пары", "план", "всю неделю", "на неделю", "на след"])
+    )
 
     # 4. Поиск предмета (дисциплины)
     subj_match = extract_subject_from_query(clean_text)
@@ -104,7 +114,7 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
             "target_course": target_course or (target_group["course"] if target_group else None),
         }
 
-    # Если это запрос всей недели
+    # Запрос всей недели
     if is_week_query:
         monday = today - timedelta(days=today.weekday())
         if is_next_week or today.weekday() >= 5:
@@ -130,6 +140,7 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
 
     matched_day_val = None
     has_general_trigger = False
+    has_query_intent = any(w in QUERY_INTENT_WORDS for w in words)
 
     for w in words:
         if matched_day_val is None and w in DAY_TARGETS_MAP:
@@ -147,6 +158,12 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
             "target_group": target_group,
         }
 
+    # Если это длинное сообщение в чате (больше 3 слов), но в нем нет триггера расписания,
+    # вопроса или целевой группы — игнорируем его (защита от обычного диалога)
+    if words_count > 3 and not (has_general_trigger or has_query_intent or is_current_location_query or target_group):
+        return None
+
+    # Если нет ни дня, ни пары, ни группы, ни ключевых слов — это не запрос расписания
     if (
         matched_day_val is None 
         and matched_slot_id is None 
