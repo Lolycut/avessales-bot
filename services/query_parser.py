@@ -5,17 +5,25 @@ from config import get_minsk_now
 from services.subject_dict import extract_subject_from_query
 
 DAY_TARGETS_MAP = {
+    # Понедельник
     "пн": 0, "пон": 0, "понедельник": 0, "понедельнику": 0, "понедельника": 0, "понедельнике": 0, "понедельнек": 0,
+    # Вторник
     "вт": 1, "втор": 1, "вторник": 1, "вторнику": 1, "вторника": 1, "вторнике": 1, "вторнек": 1,
+    # Среда
     "ср": 2, "сред": 2, "среда": 2, "среду": 2, "среды": 2, "среде": 2,
+    # Четверг
     "чт": 3, "чет": 3, "четверг": 3, "четвергу": 3, "четверга": 3, "четверге": 3, "четверк": 3,
+    # Пятница
     "пт": 4, "пят": 4, "пятница": 4, "пятницу": 4, "пятницы": 4, "пятнице": 4, "пятнеца": 4,
+    # Суббота
     "сб": 5, "суб": 5, "суббота": 5, "субботу": 5, "субботы": 5, "субботе": 5, "субота": 5,
+    # Воскресенье
     "вс": 6, "вск": 6, "воскресенье": 6, "воскресенью": 6, "воскресенья": 6, "воскресение": 6,
-    "сегодня": "today", "седня": "today", "севодня": "today",
-    "сейчас": "current", "щас": "current", "щяс": "current", "ща": "current", "сейчасная": "current",
+    # Относительные дни
+    "сегодня": "today", "седня": "today", "севодня": "today", "сгодня": "today",
     "завтра": "tomorrow", "завтро": "tomorrow",
-    "послезавтра": "after_tomorrow",
+    "послезавтра": "after_tomorrow", "послезавтро": "after_tomorrow",
+    "сейчас": "current", "щас": "current", "щяс": "current", "ща": "current",
 }
 
 PAIR_TARGETS = {
@@ -29,17 +37,25 @@ PAIR_TARGETS = {
     "восьмая": 8, "восьмой": 8, "восьмую": 8, "8-я": 8, "8-ая": 8, "8ая": 8, "8я": 8, "8ую": 8, "8-ую": 8,
 }
 
-GENERAL_SCHEDULE_KEYWORDS = {
-    "расписание", "расписанию", "расписанием", "расписании", 
-    "пары", "пара", "пару", "парам", "парами", "парах",
-    "занятия", "занятий", "уроки", "уроков"
-}
+# Регулярки для пар
+PAIR_REGEX = re.compile(
+    r"\b([1-8])\s*(?:-(?:я|ая|ей|ую|е|й|ья|ью)|(?:я|ая|ей|ую|е|й|ья|ью))?\s*(?:пара|пары|паре|пару|парой|пары)\b"
+    r"|\b([1-8])-(?:я|ая|ей|ую|е|й|ья|ью)\b"
+    r"|\b([1-8])\s*пара\b"
+)
 
-QUERY_INTENT_WORDS = {
-    "что", "где", "куда", "какая", "какой", "какие", "когда", "че", "во сколько", 
-    "скинь", "подскажи", "покажи", "будет", "будут", "есть"
-}
+# Поиск группы вида 1-41, 2-42, 1/41, 2_41
+GROUP_REGEX = re.compile(
+    r"\b([1-5])\s*[-_/\\]\s*([0-9]+(?:-[0-9]+)*)(?!\s*-(?:я|ая|ей|ую|е|й))\b"
+)
 
+# Курс (например, "2 курс")
+COURSE_REGEX = re.compile(
+    r"\b([1-5])\s*(?:-?(?:ый|ой|ий|й|ем|ом|е|у))?\s*курс[а-я]*\b",
+    re.IGNORECASE
+)
+
+# Запрос текущей локации/пары
 CURRENT_LOCATION_REGEX = re.compile(
     r"\b("
     r"где\s+мы(?:\s+сейчас|\s+щас)?"
@@ -47,37 +63,31 @@ CURRENT_LOCATION_REGEX = re.compile(
     r"|в\s+какой\s+(?:мы\s+)?(?:аудитории|ауде|кабинете|корпусе|ауд)"
     r"|какая\s+(?:у\s+нас\s+)?(?:аудитория|ауда|ауд)"
     r"|какой\s+(?:у\s+нас\s+)?(?:кабинет|корпус)"
-    r"|где\s+(?:щас|сейчас|пара|пары|занятие)"
     r"|какая\s+(?:сейчас|щас)\s+пара"
     r"|какая\s+пара\s+(?:сейчас|щас)"
     r"|что\s+(?:у\s+нас\s+)?(?:сейчас|щас)"
     r"|че\s+(?:у\s+нас\s+)?(?:сейчас|щас)"
+    r"|чо\s+(?:у\s+нас\s+)?(?:сейчас|щас)"
+    r"|шо\s+(?:у\s+нас\s+)?(?:сейчас|щас)"
     r")\b",
     re.IGNORECASE
 )
 
-PAIR_REGEX = re.compile(
-    r"\b([1-8])\s*(?:-(?:я|ая|ей|ую|е|й|ья|ью)|(?:я|ая|ей|ую|е|й|ья|ью))?\s+(?:пара|пары|паре|пару|парой)\b"
-    r"|\b([1-8])-(?:я|ая|ей|ую|е|й|ья|ью)\b"
-    r"|\b([1-8])(?:ая|яя|ья|ую|юю|ью)\b"
-)
-
-GROUP_REGEX = re.compile(
-    r"\b([1-5])\s*[-_/\\]\s*([0-9]+(?:-[0-9]+)*)(?!\s*-(?:я|ая|ей|ую|е|й))(?!\s*(?:пара|пары|паре|пару|парой))\b"
-)
-
-COURSE_REGEX = re.compile(
-    r"\b([1-5])\s*(?:-?(?:ый|ой|ий|й|ем|ом|е|у))?\s*курс[а-я]*\b",
-    re.IGNORECASE
-)
+WEEK_KEYWORDS = {"неделя", "неделю", "неделе", "недели", "нед", "расписание"}
 
 
 def parse_schedule_query(text: str) -> dict[str, Any] | None:
     today = get_minsk_now().date()
     clean_text = text.lower().strip()
-    words_count = len(clean_text.split())
 
-    # 1. Поиск группы вида 2-41, 1-42
+    # Удаляем вводные слова
+    clean_text = re.sub(r"\b(?:чо|че|шо|что|там|у|по|для|плиз|пожалуйста|скинь|подскажи|покажи|дай|какие|какая|какой)\b", " ", clean_text)
+    clean_text = re.sub(r"\s+", " ", clean_text).strip()
+
+    if not clean_text:
+        return None
+
+    # 1. Поиск группы (например: 1-41, 2-42)
     target_group = None
     group_match = GROUP_REGEX.search(clean_text)
     if group_match:
@@ -85,24 +95,18 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
         group_num = group_match.group(2).strip()
         target_group = {"course": course, "group_number": group_num}
         clean_text = clean_text[:group_match.start()] + " " + clean_text[group_match.end():]
+        clean_text = re.sub(r"\s+", " ", clean_text).strip()
 
-    # 2. Поиск курса вида "2 курс", "3-й курс"
+    # 2. Поиск курса (например, "2 курс")
     target_course = None
     course_match = COURSE_REGEX.search(clean_text)
     if course_match:
         target_course = int(course_match.group(1))
         clean_text = clean_text[:course_match.start()] + " " + clean_text[course_match.end():]
+        clean_text = re.sub(r"\s+", " ", clean_text).strip()
 
-    # 3. Недельный запрос (только при наличии расписания или коротком запросе)
-    is_next_week = any(w in clean_text for w in ["след", "следующ", "будущ", "next"])
-    has_week_word = any(w in clean_text.split() for w in ["неделю", "неделя", "неделе", "недели"])
-    is_week_query = has_week_word and (
-        words_count <= 3 
-        or any(w in clean_text for w in ["расписание", "пары", "план", "всю неделю", "на неделю", "на след"])
-    )
-
-    # 4. Поиск предмета (дисциплины)
-    subj_match = extract_subject_from_query(clean_text)
+    # 3. Поиск предмета (дисциплины: "микра", "ботаника", "генетика")
+    subj_match = extract_subject_from_query(text)
     if subj_match:
         canon_name, raw_word = subj_match
         return {
@@ -114,10 +118,15 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
             "target_course": target_course or (target_group["course"] if target_group else None),
         }
 
-    # Запрос всей недели
-    if is_week_query:
+    # 4. Проверка на запрос недели ("1-41 неделя", "расписание на неделю", "след неделя")
+    is_next_week = any(w in clean_text for w in ["след", "следующ", "будущ", "next"])
+    words = clean_text.split()
+    has_week_word = any(w in WEEK_KEYWORDS for w in words)
+
+    if has_week_word or (target_group and not clean_text):
+        # Если прислали просто "1-41 неделя" или "неделя"
         monday = today - timedelta(days=today.weekday())
-        if is_next_week or today.weekday() >= 5:
+        if is_next_week or (today.weekday() >= 5 and has_week_word):
             monday += timedelta(days=7)
         return {
             "type": "week",
@@ -126,57 +135,33 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
             "target_group": target_group,
         }
 
-    # 5. Запрос текущей пары / локации
-    is_current_location_query = bool(CURRENT_LOCATION_REGEX.search(clean_text))
+    # 5. Проверка на текущую пару / локацию
+    is_current_query = bool(CURRENT_LOCATION_REGEX.search(text))
 
-    # 6. Поиск номера пары
+    # 6. Поиск номера пары (1 пара, 2-я, третья)
     matched_slot_id = None
     pair_match = PAIR_REGEX.search(clean_text)
     if pair_match:
         matched_slot_id = int(pair_match.group(1) or pair_match.group(2) or pair_match.group(3))
 
-    normalized_text = re.sub(r"[^\w\s-]", " ", clean_text)
-    words = normalized_text.split()
-
     matched_day_val = None
-    has_general_trigger = False
-    has_query_intent = any(w in QUERY_INTENT_WORDS for w in words)
-
     for w in words:
         if matched_day_val is None and w in DAY_TARGETS_MAP:
             matched_day_val = DAY_TARGETS_MAP[w]
         if matched_slot_id is None and w in PAIR_TARGETS:
             matched_slot_id = PAIR_TARGETS[w]
-        if w in GENERAL_SCHEDULE_KEYWORDS:
-            has_general_trigger = True
 
-    if is_current_location_query and matched_day_val is None and matched_slot_id is None:
-        return {
-            "type": "current",
-            "date": today,
-            "day_index": today.weekday(),
-            "target_group": target_group,
-        }
+    # Если в запросе была указана целевая группа, но не указан день — по умолчанию берём сегодня
+    if target_group and matched_day_val is None and matched_slot_id is None and not is_current_query:
+        matched_day_val = "today"
 
-    # Если это длинное сообщение в чате (больше 3 слов), но в нем нет триггера расписания,
-    # вопроса или целевой группы — игнорируем его (защита от обычного диалога)
-    if words_count > 3 and not (has_general_trigger or has_query_intent or is_current_location_query or target_group):
-        return None
-
-    # Если нет ни дня, ни пары, ни группы, ни ключевых слов — это не запрос расписания
-    if (
-        matched_day_val is None 
-        and matched_slot_id is None 
-        and target_group is None 
-        and not has_general_trigger
-        and not is_current_location_query
-    ):
+    if matched_day_val is None and matched_slot_id is None and not is_current_query:
         return None
 
     target_date = today
     day_index = today.weekday()
 
-    if matched_day_val == "current" or (is_current_location_query and matched_day_val is None and matched_slot_id is None):
+    if matched_day_val == "current" or (is_current_query and matched_day_val is None and matched_slot_id is None):
         return {
             "type": "current",
             "date": today,

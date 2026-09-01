@@ -1,5 +1,6 @@
 import asyncio
 import os
+import html
 from aiogram import Router, Bot
 from aiogram.filters import Command, CommandObject, BaseFilter
 from aiogram.types import Message, FSInputFile
@@ -9,11 +10,9 @@ from sqlalchemy import select, func
 from database import async_session_maker
 from models import User, Group, Lesson, Week, Chat
 from services.schedule_cache import schedule_cache
-from config import ADMIN_IDS, logger
+from services.metrics import metrics_service
 from services.api_client import sync_all_courses, LAST_SYNC_INFO
-import html
-from sqlalchemy import select, func
-from models import User, Group, Chat
+from config import ADMIN_IDS, logger
 
 router = Router()
 
@@ -33,73 +32,87 @@ router.message.filter(IsAdminFilter())
 async def cmd_admin_help(message: Message):
     text = (
         "👑 <b>Панель администратора AvesSales</b>\n\n"
-        "• <code>/stats</code> — системная статистика, БД и In-Memory кэш\n"
+        "• <code>/stats</code> (или <code>/metrics</code>) — живые метрики активности, БД и кэш\n"
         "• <code>/allstats</code> — срез студентов и бесед по каждому курсу и группе\n"
         "• <code>/sync</code> — принудительная синхронизация с bio.bsu.by\n"
-        "• <code>/tech Текст</code> — рассылка оповещения студентам\n"
+        "• <code>/tech Текст</code> — рассылка оповещения студентам и в беседы\n"
         "• <code>/logs</code> — скачать файл логов (bot.log)"
     )
     await message.answer(text)
 
 
 @router.message(Command("stats"))
+@router.message(Command("metrics"))
 async def cmd_admin_stats(message: Message):
+    # 1. Живые метрики активности
+    m = metrics_service.get_stats()
+
+    # 2. Данные из базы данных (PostgreSQL)
     async with async_session_maker() as session:
         # Пользователи
         total_users = await session.scalar(select(func.count(User.telegram_id)))
-        active_notifs = await session.scalar(
-            select(func.count(User.telegram_id)).where(User.notifications_enabled == True)
-        )
         users_with_group = await session.scalar(
             select(func.count(User.telegram_id)).where(User.group_id.is_not(None))
+        )
+        morning_users = await session.scalar(
+            select(func.count(User.telegram_id)).where(User.notifications_enabled == True)
+        )
+        change_users = await session.scalar(
+            select(func.count(User.telegram_id)).where(User.change_notifications_enabled == True)
         )
 
         # Беседы
         total_chats = await session.scalar(select(func.count(Chat.chat_id)))
-        active_chats = await session.scalar(
-            select(func.count(Chat.chat_id)).where(Chat.is_active == True)
-        )
-        chats_with_notifs = await session.scalar(
-            select(func.count(Chat.chat_id)).where(Chat.notifications_enabled == True)
-        )
         chats_with_group = await session.scalar(
             select(func.count(Chat.chat_id)).where(Chat.group_id.is_not(None))
         )
+        active_chats = await session.scalar(
+            select(func.count(Chat.chat_id)).where(Chat.is_active == True)
+        )
+        morning_chats = await session.scalar(
+            select(func.count(Chat.chat_id)).where(Chat.notifications_enabled == True)
+        )
+        change_chats = await session.scalar(
+            select(func.count(Chat.chat_id)).where(Chat.change_notifications_enabled == True)
+        )
 
-        # БД
+        # БД сущности
         total_groups = await session.scalar(select(func.count(Group.id)))
         total_lessons = await session.scalar(select(func.count(Lesson.id)))
         total_weeks = await session.scalar(select(func.count(Week.id)))
 
-    # In-Memory кэш
+    # 3. Состояние In-Memory кэша
     cache_info = schedule_cache.get_cache_stats()
-    cache_ready_str = "✅ Готов к работе" if cache_info["is_ready"] else "❌ Не инициализирован"
+    cache_ready_str = "🟢 Готов к работе" if cache_info["is_ready"] else "🔴 Не инициализирован"
 
     sync_time = LAST_SYNC_INFO.get("timestamp") or "Еще не запускалась"
     sync_count = LAST_SYNC_INFO.get("total_lessons_saved", 0)
 
     text = (
-        "📊 <b>Системная статистика и состояние:</b>\n\n"
-        "👤 <b>Студенты (ЛС):</b>\n"
-        f"• Всего пользователей: <b>{total_users or 0}</b>\n"
-        f"• Завершили регистрацию: <b>{users_with_group or 0}</b>\n"
-        f"• Утренние уведомления (07:45): <b>{active_notifs or 0}</b>\n\n"
-        "👥 <b>Беседы / Групповые чаты:</b>\n"
-        f"• Всего подключено бесед: <b>{total_chats or 0}</b>\n"
-        f"• С заданной группой: <b>{chats_with_group or 0}</b>\n"
-        f"• Активные ответы в чате: <b>{active_chats or 0}</b>\n"
-        f"• Утренние уведы в чаты: <b>{chats_with_notifs or 0}</b>\n\n"
-        "🧠 <b>In-Memory Кэш (RAM O(1)):</b>\n"
+        f"📊 <b>Живые метрики и системное состояние</b>\n"
+        f"<i>Сервер запущен: {m['boot_time']}</i>\n\n"
+        f"📈 <b>Активность за сегодня ({m['today_date']}):</b>\n"
+        f"• 👥 Уникальных пользователей (DAU): <b>{m['dau']}</b>\n"
+        f"• 💬 Активных бесед (DAC): <b>{m['dac']}</b>\n"
+        f"• ⚡ Запросов за сутки: <b>{m['daily_requests']}</b>\n"
+        f"• 🕒 Пиковый час нагрузки: <b>{m['peak_hour']}</b>\n\n"
+        f"🌐 <b>Всего с момента запуска:</b>\n"
+        f"• 🚀 Всего взаимодействий: <b>{m['total_requests']}</b>\n"
+        f"• 👤 В личке: <b>{m['total_private']}</b> | 👥 В беседах: <b>{m['total_group']}</b>\n"
+        f"• 💬 Текстовых сообщений: <b>{m['total_messages']}</b> | 🔘 Нажатий кнопок: <b>{m['total_callbacks']}</b>\n\n"
+        f"👤 <b>Пользователи в БД:</b>\n"
+        f"• Всего в базе: <b>{total_users or 0}</b> (с группой: <b>{users_with_group or 0}</b>)\n"
+        f"• Подписки: 🌅 Утро (07:45): <b>{morning_users or 0}</b> | ⚡ Изменения: <b>{change_users or 0}</b>\n\n"
+        f"👥 <b>Беседы в БД:</b>\n"
+        f"• Всего подключено: <b>{total_chats or 0}</b> (с группой: <b>{chats_with_group or 0}</b>)\n"
+        f"• Активные ответы «Бот»: <b>{active_chats or 0}</b>\n"
+        f"• Подписки: 🌅 Утро: <b>{morning_chats or 0}</b> | ⚡ Изменения: <b>{change_chats or 0}</b>\n\n"
+        f"🧠 <b>In-Memory Кэш (RAM O(1)):</b>\n"
         f"• Статус: {cache_ready_str}\n"
-        f"• Групп в кэше: <b>{cache_info['groups_count']}</b>\n"
-        f"• Учебных недель: <b>{cache_info['weeks_count']}</b>\n"
-        f"• Занятий в памяти: <b>{cache_info['lessons_count']}</b>\n"
+        f"• Групп: <b>{cache_info['groups_count']}</b> | Недель: <b>{cache_info['weeks_count']}</b> | Пар: <b>{cache_info['lessons_count']}</b>\n"
         f"• Индекс преподавателей: <b>{cache_info['teachers_count']} чел.</b>\n\n"
-        "🗄 <b>База данных (PostgreSQL):</b>\n"
-        f"• Групп: <b>{total_groups or 0}</b> | Недель: <b>{total_weeks or 0}</b> | Пар: <b>{total_lessons or 0}</b>\n\n"
-        "🌐 <b>Синхронизация bio.bsu.by:</b>\n"
-        f"• Последний запуск: <code>{sync_time}</code>\n"
-        f"• Обновлено пар: <b>{sync_count}</b>"
+        f"🗄 <b>PostgreSQL:</b> {total_groups or 0} групп | {total_weeks or 0} недель | {total_lessons or 0} пар\n"
+        f"🌐 <b>Синхронизация bio.bsu.by:</b> <code>{sync_time}</code> (пар: {sync_count})"
     )
 
     await message.answer(text)
@@ -108,13 +121,11 @@ async def cmd_admin_stats(message: Message):
 @router.message(Command("allstats"))
 async def cmd_admin_allstats(message: Message):
     async with async_session_maker() as session:
-        # Загружаем все группы
         groups_res = await session.execute(
             select(Group).order_by(Group.course.asc(), Group.number.asc())
         )
         all_groups = groups_res.scalars().all()
 
-        # Считаем пользователей по группам
         users_count_res = await session.execute(
             select(User.group_id, func.count(User.telegram_id))
             .where(User.group_id.is_not(None))
@@ -122,7 +133,6 @@ async def cmd_admin_allstats(message: Message):
         )
         users_by_group = dict(users_count_res.all())
 
-        # Считаем беседы по группам
         chats_count_res = await session.execute(
             select(Chat.group_id, func.count(Chat.chat_id))
             .where(Chat.group_id.is_not(None))
@@ -130,7 +140,6 @@ async def cmd_admin_allstats(message: Message):
         )
         chats_by_group = dict(chats_count_res.all())
 
-        # Пользователи без группы
         unreg_users = await session.scalar(
             select(func.count(User.telegram_id)).where(User.group_id.is_(None))
         )
@@ -138,7 +147,6 @@ async def cmd_admin_allstats(message: Message):
     total_students = sum(users_by_group.values())
     total_chats = sum(chats_by_group.values())
 
-    # 1. Шапка со сводкой
     header_text = (
         f"📊 <b>Детальная статистика по факультету</b>\n\n"
         f"👥 Всего студентов в группах: <b>{total_students}</b>\n"
@@ -148,7 +156,6 @@ async def cmd_admin_allstats(message: Message):
     )
     await message.answer(header_text)
 
-    # 2. Отправка каждого курса отдельным сообщением
     for course in range(1, 6):
         course_groups = [g for g in all_groups if g.course == course]
         course_groups.sort(
@@ -237,7 +244,7 @@ async def cmd_tech_broadcast(message: Message, command: CommandObject, bot: Bot)
             sent += 1
         except TelegramForbiddenError:
             blocked_count += 1
-        except TelegramBadRequest as e:
+        except TelegramBadRequest:
             bad_request_count += 1
         except TelegramRetryAfter as e:
             await asyncio.sleep(e.retry_after)
@@ -249,7 +256,7 @@ async def cmd_tech_broadcast(message: Message, command: CommandObject, bot: Bot)
                 sent += 1
             except Exception:
                 other_errors += 1
-        except Exception as e:
+        except Exception:
             other_errors += 1
 
         await asyncio.sleep(0.04)

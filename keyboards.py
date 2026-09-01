@@ -15,9 +15,14 @@ def main_menu_kb(notifications: bool = True) -> ReplyKeyboardMarkup:
     )
 
 
-def settings_inline_kb() -> InlineKeyboardMarkup:
+def settings_inline_kb(morning_enabled: bool, changes_enabled: bool) -> InlineKeyboardMarkup:
+    morning_btn = "🌅 Утро 07:45: ВКЛ 🟢" if morning_enabled else "🌅 Утро 07:45: ВЫКЛ 🔴"
+    changes_btn = "⚡ Изменения пар: ВКЛ 🟢" if changes_enabled else "⚡ Изменения пар: ВЫКЛ 🔴"
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text=morning_btn, callback_data="toggle_user_morning_notif")],
+            [InlineKeyboardButton(text=changes_btn, callback_data="toggle_user_changes_notif")],
             [InlineKeyboardButton(text="👥 Сменить подгруппу", callback_data="change_subgroup")],
             [InlineKeyboardButton(text="✏️ Изменить никнейм", callback_data="change_nickname")],
             [InlineKeyboardButton(text="🔄 Сменить группу (перерегистрация)", callback_data="restart_reg")],
@@ -102,14 +107,21 @@ def week_nav_kb(
 # Клавиатуры для беседы (группового чата)
 # ==========================================
 
-def group_chat_settings_kb(chat_id: int, is_active: bool, notifications_enabled: bool) -> InlineKeyboardMarkup:
-    active_text = "💬 Ответы в чате: ВКЛ 🟢" if is_active else "💬 Ответы в чате: ВЫКЛ 🔴"
-    notif_text = "🔔 Уведомления 07:45: ВКЛ 🟢" if notifications_enabled else "🔕 Уведомления 07:45: ВЫКЛ 🔴"
+def group_chat_settings_kb(
+    chat_id: int, 
+    is_active: bool, 
+    notifications_enabled: bool,
+    change_notifications_enabled: bool = True
+) -> InlineKeyboardMarkup:
+    active_text = "💬 Ответы на «Бот»: ВКЛ 🟢" if is_active else "💬 Ответы на «Бот»: ВЫКЛ 🔴"
+    notif_text = "🌅 Утро 07:45: ВКЛ 🟢" if notifications_enabled else "🌅 Утро 07:45: ВЫКЛ 🔴"
+    change_text = "⚡ Изменения пар: ВКЛ 🟢" if change_notifications_enabled else "⚡ Изменения пар: ВЫКЛ 🔴"
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=active_text, callback_data=f"g_toggle_act_{chat_id}")],
             [InlineKeyboardButton(text=notif_text, callback_data=f"g_toggle_not_{chat_id}")],
+            [InlineKeyboardButton(text=change_text, callback_data=f"g_toggle_chg_{chat_id}")],
             [InlineKeyboardButton(text="🎓 Установить группу беседы", callback_data=f"g_pick_crs_{chat_id}")],
             [InlineKeyboardButton(text="❌ Закрыть меню", callback_data=f"g_close_{chat_id}")]
         ]

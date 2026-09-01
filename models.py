@@ -38,7 +38,8 @@ class User(Base):
         ForeignKey("groups.id", ondelete="SET NULL"), default=None, index=True
     )
     subgroup: Mapped[int | None] = mapped_column(SmallInteger, default=None)
-    notifications_enabled: Mapped[bool] = mapped_column(default=True, index=True)
+    notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)  # Утренний дайджест (07:45)
+    change_notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)  # Оповещения об изменениях
     registered_at: Mapped[datetime] = mapped_column(
         default=get_minsk_now, server_default=func.now()
     )
@@ -56,8 +57,9 @@ class Chat(Base):
     group_id: Mapped[int | None] = mapped_column(
         ForeignKey("groups.id", ondelete="SET NULL"), default=None, index=True
     )
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)  # Чтение/ответы в чате
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)  # Чтение сообщений «Бот ...»
     notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)  # Утренние уведы в 07:45
+    change_notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)  # Уведы об изменениях
     created_at: Mapped[datetime] = mapped_column(
         default=get_minsk_now, server_default=func.now()
     )

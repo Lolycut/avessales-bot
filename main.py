@@ -14,6 +14,7 @@ from services.api_client import sync_all_courses, api_client
 from services.schedule_cache import schedule_cache
 from services.notifications import morning_notifications_loop
 from handlers import start, settings, schedule, admin, group_settings
+from middlewares.metrics_middleware import MetricsMiddleware
 
 # Настройки Webhook и сервера
 WEBHOOK_PATH = "/webhook"
@@ -126,6 +127,11 @@ def main():
 
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
+
+    # Подключение системы сбора метрик
+    metrics_mw = MetricsMiddleware()
+    dp.message.middleware(metrics_mw)
+    dp.callback_query.middleware(metrics_mw)
 
     # Регистрация хуков жизненного цикла aiogram
     dp.startup.register(on_startup)

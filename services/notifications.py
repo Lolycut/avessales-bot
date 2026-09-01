@@ -148,12 +148,18 @@ async def dispatch_schedule_changes(
 
         async with async_session_maker() as session:
             users_res = await session.execute(
-                select(User).where(User.group_id == group_id, User.notifications_enabled == True)
+                select(User).where(
+                    User.group_id == group_id, 
+                    User.change_notifications_enabled == True
+                )
             )
             target_users = users_res.scalars().all()
 
             chats_res = await session.execute(
-                select(Chat).where(Chat.group_id == group_id, Chat.notifications_enabled == True)
+                select(Chat).where(
+                    Chat.group_id == group_id, 
+                    Chat.change_notifications_enabled == True
+                )
             )
             target_chats = chats_res.scalars().all()
 

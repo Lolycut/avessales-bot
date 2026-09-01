@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
@@ -15,7 +16,6 @@ from services.formatter import (
     format_full_week_rich_message, 
     format_teacher_rich_schedule,
     format_subject_rich_schedule,
-    short_name,
     TIMESLOTS, 
     DAYS_NAMES
 )
@@ -135,27 +135,48 @@ async def callback_switch_week_by_date(callback: CallbackQuery, bot: Bot):
 
 @router.message(F.text)
 async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot):
-    if message.text.startswith("/") or "Уведы" in message.text or "Настройки" in message.text:
+    raw_text = (message.text or "").strip()
+    if not raw_text or raw_text.startswith("/") or "Уведы" in raw_text or "Настройки" in raw_text:
         return
 
     is_group_chat = message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
+    query_text = raw_text
 
-    # 0. Проверка настроек беседы
+    # 1. В беседах бот реагирует ТОЛЬКО на обращение "Бот ..." в начале сообщения
     if is_group_chat:
+        # Проверяем, начинается ли сообщение со слова "бот"
+        match_bot = re.match(r"^бот\b(?:[\s,!:—–-]+(.*)|$)", raw_text, re.IGNORECASE)
+        if not match_bot:
+            return  # Игнорируем весь посторонний треп в чате
+
+        extracted_query = match_bot.group(1)
+        if not extracted_query or not extracted_query.strip():
+            # Если написали просто "Бот", "Бот!", "бот,"
+            await message.reply("Летаю! 🦅")
+            return
+
+        query_text = extracted_query.strip()
+
+        # Авто-актуализация данных беседы в БД
         async with async_session_maker() as session:
             chat_obj = await session.get(Chat, message.chat.id)
             if not chat_obj:
                 chat_obj = Chat(chat_id=message.chat.id, title=message.chat.title)
                 session.add(chat_obj)
                 await session.commit()
+            elif chat_obj.title != message.chat.title:
+                chat_obj.title = message.chat.title
+                await session.commit()
 
             if not chat_obj.is_active:
                 return
             chat_group_id = chat_obj.group_id
+    else:
+        chat_group_id = None
 
-    # 1. Поиск преподавателя (In-Memory)
+    # 2. Поиск преподавателя (In-Memory)
     now_date = get_minsk_now().date()
-    teacher_match = schedule_cache.find_teacher_schedule(message.text, now_date)
+    teacher_match = schedule_cache.find_teacher_schedule(query_text, now_date)
     if teacher_match:
         teacher_name, monday, lessons_data = teacher_match
         rich_msg = format_teacher_rich_schedule(
@@ -166,14 +187,14 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg)
         return
 
-    # 2. Парсинг запроса на расписание
-    parsed = parse_schedule_query(message.text)
+    # 3. Парсинг запроса на расписание
+    parsed = parse_schedule_query(query_text)
     if not parsed:
         return
 
     await state.clear()
 
-    # 3. Определение целевой группы и подгруппы
+    # 4. Определение целевой группы и подгруппы
     if parsed.get("target_group"):
         t_course = parsed["target_group"]["course"]
         t_num = parsed["target_group"]["group_number"]
@@ -185,6 +206,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         user_name = message.chat.title if is_group_chat else "Студент"
     elif is_group_chat:
         if not chat_group_id:
+            await message.answer("⚠️ В этой беседе еще не выбрана академическая группа! Настройте её через <code>/chat_settings</code>")
             return
         group = schedule_cache.get_group_by_id(chat_group_id)
         target_subgroup = 0
@@ -205,7 +227,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
             await message.answer("⚠️ Группа не найдена. Пройдите регистрацию заново: /start")
         return
 
-    # 3.5. Поиск пар по конкретному предмету на неделю
+    # 5. Поиск пар по предмету
     if parsed["type"] == "subject":
         target_group_dict = parsed.get("target_group")
         q_course = parsed.get("target_course")
@@ -238,7 +260,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg)
         return
 
-    # 4. Расписание на неделю
+    # 6. Расписание на неделю
     if parsed["type"] == "week":
         await send_week_schedule(
             user_name=user_name,
@@ -250,7 +272,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         )
         return
 
-    # 5. Конкретный слот или текущая пара
+    # 7. Конкретный слот или текущая пара
     monday, lessons = schedule_cache.get_lessons_for_group(group.id, group.course, parsed["date"])
     day_name = DAYS_NAMES[parsed["day_index"]]
     formatted_date = parsed["date"].strftime("%d.%m")
@@ -314,7 +336,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         await message.answer(text)
         return
 
-    # 6. Дневная карточка расписания
+    # 8. Дневная карточка расписания
     rich_msg = build_native_rich_schedule(
         user_name=user_name,
         group_name=group.name,

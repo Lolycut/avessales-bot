@@ -24,25 +24,13 @@ FAQ_TEXT = (
     "• <b>📅 Сегодня / 📆 Завтра</b> — расписание вашей группы на выбранный день в виде таблицы\n"
     "• <b>⚡ Какая пара сейчас?</b> — активная пара в данный момент или ближайшая следующая. Показывает аудиторию, преподавателя и метку <code>⚠️ ВЫЕЗД!</code>, если корпус не на Курчатова 10\n"
     "• <b>🗓 На неделю</b> — расписание на всю неделю с кнопками переключения <code>◀️ Пред.</code> и <code>След. ▶️</code>\n"
-    "• <b>🔔 Уведы</b> — включает/выключает утреннюю рассылку пар в <b>07:45</b> по Минску\n"
-    "• <b>⚙️ Настройки</b> — смена подгруппы, имени или повторный выбор группы\n\n"
+    "• <b>🔔 Уведы</b> — быстрое переключение утренней рассылки (07:45)\n"
+    "• <b>⚙️ Настройки</b> — тонкая настройка утренних уведов и алертов об изменениях пар, смена подгруппы и имени\n\n"
     "<b>💬 Поиск на естественном языке (текстом):</b>\n"
-    "Вы можете писать боту запросы обычной речью, даже с опечатками:\n"
-    "• <i>«что во вторник?»</i>, <i>«пары в четверг»</i>, <i>«расписание на сб»</i>\n"
+    "Вы можете писать боту обычным языком:\n"
+    "• <i>«что во вторник?»</i>, <i>«1-41 неделя»</i>, <i>«чо у 2-42 в чт»</i>\n"
     "• <i>«какая 2 пара во вторник?»</i>, <i>«3 пара завтра»</i>\n"
-    "• <i>«след неделя»</i>, <i>«в следующий понедельник»</i>\n\n"
-    "<b>🔍 Поиск расписания ДРУГИХ групп:</b>\n"
-    "Используйте формат <code>КУРС-ГРУППА</code>:\n"
-    "• <i>«Что у 1-41 в чт?»</i> — расписание 41 группы 1 курса на четверг\n"
-    "• <i>«2-42 на завтра»</i> — расписание 42 группы 2 курса на завтра\n"
-    "• <i>«1-41 на неделю»</i> — недельное расписание чужой группы\n"
-    "• <i>«Какая 1 пара у 3-41 в пятницу»</i> — конкретная пара чужой группы\n\n"
-    "<b>🔍 Поиск ПРЕПОДАВАТЕЛЕЙ:</b>\n"
-    "Вы можете искать преподавателей по их фамилии:\n"
-    "• <i>«/teachers»</i> — показывает список всех найденных в базе преподавателей с подсказками по поиску\n"
-    "• <i>«Кукулянская», «Где Рудакевич?», «Расписание Гричик», «пары Сауткина»</i> — поиск по фамилии\n\n"
-    "<b>🔍 Поиск ПРЕДМЕТОВ У ДРУГИХ:</b>\n"
-    "• <i>«когда микробиология у 2-49?»</i>, <i>«где генетика?»</i>, <i>«отработка по химии»</i> — поиск всех пар по предмету на неделю\n"
+    "• <i>«след неделя»</i>, <i>«пары Гричика»</i>\n"
 )
 
 TERMS_TEXT = (
@@ -55,16 +43,34 @@ TERMS_TEXT = (
     "• <code>Telegram ID</code> и публичный <code>username</code> (для идентификации и отправки сообщений)\n"
     "• Указанное вами имя или никнейм\n"
     "• Выбранный курс, номер группы и подгруппа\n"
-    "• Настройки уведомлений (вкл/выкл утренней рассылки)\n"
+    "• Настройки уведомлений (утренние дайджесты и алерты об изменениях)\n"
     "• <i>Для бесед (групповых чатов):</i> ID чата, название и привязанная академическая группа\n"
-    "🔒 <i>Бот <b>НЕ</b> собирает, не запрашивает и не хранит пароли, личные переписки, номера телефонов, геолокацию или платежные данные. Данные не передаются третьим лицам.</i>\n\n"
+    "🔒 <i>Бот <b>НЕ</b> собирает, не запрашивает и не хранит пароли, личные переписки, номера телефонов, геолокацию или платежные данные.</i>\n\n"
     "⚖️ <b>3. Ограничение ответственности:</b>\n"
-    "• Сервис предоставляется по принципу <b>«как есть» («as is»)</b> на безвозмездной основе\n"
-    "• Разработчики не несут ответственности за возможные неточности, внезапные изменения в расписании со стороны деканата/кафедр, технические сбои сайта факультета или опоздания на занятия\n"
-    "• В случае спорных моментов и изменений первоисточником всегда является официальное распоряжение деканата факультета\n\n"
-    "🗑 <b>4. Удаление данных:</b>\n"
-    "Если вы хотите прекратить использование бота и удалить свои данные из базы, достаточно заблокировать бота или отключить уведомления в настройках"
+    "• Сервис предоставляется по принципу <b>«как есть» («as is»)</b>\n"
+    "• В случае спорных моментов первоисточником всегда является официальное распоряжение деканата факультета"
 )
+
+
+def render_settings_text(user: User, group_name: str, course_str: str) -> str:
+    safe_name = html.escape(user.first_name or "Студент")
+    safe_group = html.escape(group_name)
+    sub_title = f"{user.subgroup}-я подгруппа" if user.subgroup else "Вся группа"
+
+    morning_status = "Включена 🟢" if user.notifications_enabled else "Выключена 🔴"
+    changes_status = "Включены 🟢" if user.change_notifications_enabled else "Выключены 🔴"
+
+    return (
+        f"⚙️ <b>Личный кабинет и настройки</b>\n\n"
+        f"👤 Ваше имя: <b>{safe_name}</b>\n"
+        f"🎓 Курс: <b>{course_str}</b>\n"
+        f"👥 Группа: <b>{safe_group}</b>\n"
+        f"🔢 Подгруппа: <b>{sub_title}</b>\n\n"
+        f"<b>🔔 Управление уведомлениями:</b>\n"
+        f"• 🌅 Утренний дайджест (07:45): <b>{morning_status}</b>\n"
+        f"• ⚡ Изменения в расписании: <b>{changes_status}</b>\n\n"
+        f"<i>Используйте кнопки ниже для переключения:</i>"
+    )
 
 
 @router.message(Command("help"))
@@ -92,8 +98,9 @@ async def callback_show_terms(callback: CallbackQuery):
     await callback.answer()
 
 
+# Быстрое переключение через кнопку клавиатуры
 @router.message(F.text.contains("Уведы"))
-async def toggle_notifications(message: Message, state: FSMContext):
+async def toggle_notifications_quick(message: Message, state: FSMContext):
     await state.clear()
     async with async_session_maker() as session:
         user = await session.get(User, message.from_user.id)
@@ -104,13 +111,15 @@ async def toggle_notifications(message: Message, state: FSMContext):
         new_status = user.notifications_enabled
         await session.commit()
 
-    status_text = "включены 🔔" if new_status else "выключены 🔕"
+    status_text = "включена 🔔" if new_status else "выключена 🔕"
     await message.answer(
-        f"Уведомления успешно <b>{status_text}</b>!", 
+        f"Утренняя рассылка в 07:45 успешно <b>{status_text}</b>!\n\n"
+        f"💡 <i>Настроить уведомления об изменениях расписания можно в <b>⚙️ Настройки</b></i>", 
         reply_markup=main_menu_kb(new_status)
     )
 
 
+# Главное меню настроек
 @router.message(F.text.contains("Настройки"))
 async def open_settings(message: Message, state: FSMContext):
     await state.clear()
@@ -121,22 +130,60 @@ async def open_settings(message: Message, state: FSMContext):
             return
 
     group = schedule_cache.get_group_by_id(user.group_id) if user.group_id else None
-    group_name = group.name if group else "Не выбрана"
+    group_name = f"{group.number} ({group.name})" if group else "Не выбрана"
     course_str = f"{group.course} курс" if group else "—"
 
-    safe_name = html.escape(user.first_name or "Студент")
-    safe_group = html.escape(group_name)
-
-    text = (
-        f"⚙️ <b>Личный кабинет и настройки</b>\n\n"
-        f"👤 Ваше имя: <b>{safe_name}</b>\n"
-        f"🎓 Курс: <b>{course_str}</b>\n"
-        f"👥 Группа: <b>{group.number if group else '—'} ({safe_group})</b>\n"
-        f"🔢 Подгруппа: <b>{user.subgroup or 'Вся группа'}</b>\n"
-        f"🔔 Уведомления: <b>{'Включены' if user.notifications_enabled else 'Выключены'}</b>\n\n"
-        f"Что хотите изменить?"
+    text = render_settings_text(user, group_name, course_str)
+    await message.answer(
+        text, 
+        reply_markup=settings_inline_kb(user.notifications_enabled, user.change_notifications_enabled)
     )
-    await message.answer(text, reply_markup=settings_inline_kb())
+
+
+# Переключение утренней рассылки (07:45)
+@router.callback_query(F.data == "toggle_user_morning_notif")
+async def callback_toggle_user_morning_notif(callback: CallbackQuery):
+    async with async_session_maker() as session:
+        user = await session.get(User, callback.from_user.id)
+        if not user:
+            await callback.answer()
+            return
+        user.notifications_enabled = not user.notifications_enabled
+        await session.commit()
+
+        group = schedule_cache.get_group_by_id(user.group_id) if user.group_id else None
+        group_name = f"{group.number} ({group.name})" if group else "Не выбрана"
+        course_str = f"{group.course} курс" if group else "—"
+
+        text = render_settings_text(user, group_name, course_str)
+        kb = settings_inline_kb(user.notifications_enabled, user.change_notifications_enabled)
+
+    await callback.message.edit_text(text, reply_markup=kb)
+    status_str = "включена 🟢" if user.notifications_enabled else "выключена 🔴"
+    await callback.answer(f"Утренняя рассылка {status_str}!")
+
+
+# Переключение уведомлений об изменениях в парах
+@router.callback_query(F.data == "toggle_user_changes_notif")
+async def callback_toggle_user_changes_notif(callback: CallbackQuery):
+    async with async_session_maker() as session:
+        user = await session.get(User, callback.from_user.id)
+        if not user:
+            await callback.answer()
+            return
+        user.change_notifications_enabled = not user.change_notifications_enabled
+        await session.commit()
+
+        group = schedule_cache.get_group_by_id(user.group_id) if user.group_id else None
+        group_name = f"{group.number} ({group.name})" if group else "Не выбрана"
+        course_str = f"{group.course} курс" if group else "—"
+
+        text = render_settings_text(user, group_name, course_str)
+        kb = settings_inline_kb(user.notifications_enabled, user.change_notifications_enabled)
+
+    await callback.message.edit_text(text, reply_markup=kb)
+    status_str = "включены 🟢" if user.change_notifications_enabled else "выключены 🔴"
+    await callback.answer(f"Оповещения об изменениях расписания {status_str}!")
 
 
 @router.callback_query(F.data == "change_subgroup")
