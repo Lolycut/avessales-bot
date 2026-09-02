@@ -41,13 +41,12 @@ POTOCHKA_WORDS_MAP = {
     "1": "1", "перв": "1", "1-я": "1", "1-ой": "1", "1-ую": "1", "1я": "1",
     "2": "2", "втор": "2", "2-я": "2", "2-ой": "2", "2-ую": "2", "2я": "2",
     "3": "3", "трет": "3", "3-я": "3", "3-ей": "3", "3-ью": "3", "3я": "3",
-    "4": "4", "четверт": "4", "четвёрт": "4", "4-я": "4", "4-ой": "4", "4-ую": "4", "4я": "4",
 }
 
-# Регулярка для поточек
+# Регулярка для поточек (только 1, 2, 3)
 POTOCHKA_REGEX = re.compile(
-    r"\b([1-4]|перв[а-я]*|втор[а-я]*|трет[а-я]*|четверт[а-я]*|четвёрт[а-я]*)\s*(?:-(?:я|ая|ей|ой|ую|ем|ом|й|ья|ью))?\s*(?:п[оа]точк[а-я]*|п[оа]точн[а-я]*|п\.?а\.?|п/а)\b"
-    r"|\b(?:п[оа]точк[а-я]*|п[оа]точн[а-я]*|п\.?а\.?|п/а)\s*([1-4]|перв[а-я]*|втор[а-я]*|трет[а-я]*|четверт[а-я]*|четвёрт[а-я]*)\b",
+    r"\b([1-3]|перв[а-я]*|втор[а-я]*|трет[а-я]*)\s*(?:-(?:я|ая|ей|ой|ую|ем|ом|й|ья|ью))?\s*(?:п[оа]точк[а-я]*|п[оа]точн[а-я]*|п\.?а\.?|п/а)\b"
+    r"|\b(?:п[оа]точк[а-я]*|п[оа]точн[а-я]*|п\.?а\.?|п/а)\s*([1-3]|перв[а-я]*|втор[а-я]*|трет[а-я]*)\b",
     re.IGNORECASE
 )
 
@@ -159,7 +158,7 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
     course_match = COURSE_REGEX.search(working_text)
     if course_match:
         target_course = int(course_match.group(1))
-        working_text = working_text[:course_match.start()] + " " + working_text[course_match.end():]
+        working_text = working_text[:course_match.start()] + " " + course_match[course_match.end():]
         working_text = re.sub(r"\s+", " ", working_text).strip()
 
     # 4. Поиск дисциплины (ботаника, микра и тд.)
@@ -180,7 +179,7 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
     pair_match = PAIR_REGEX.search(working_text)
     if pair_match:
         matched_slot_id = int(pair_match.group(1) or pair_match.group(2) or pair_match.group(3))
-        working_text = working_text[:pair_match.start()] + " " + working_text[pair_match.end():]
+        working_text = working_text[:pair_match.start()] + " " + pair_match[pair_match.end():]
         working_text = re.sub(r"\s+", " ", working_text).strip()
 
     # 6. Поиск дня недели / даты

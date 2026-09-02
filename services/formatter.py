@@ -610,23 +610,25 @@ def format_free_rooms_day_summary_rich(
 
     # Если есть аудитории, свободные вообще весь день
     if data["all_day_free"] and not only_potochki:
-        free_all_str = " • ".join([f"<code>{r}</code>" for r in data["all_day_free"][:12]])
+        free_all_str = " • ".join(data["all_day_free"][:12])
         blocks.append(
             InputRichBlockParagraph(
-                text=f"✨ <b>Свободны ВЕСЬ ДЕНЬ (1–6 пары):</b>\n👉 {free_all_str}"
+                text=RichTextBold(
+                    text=f"✨ Свободны ВЕСЬ ДЕНЬ (1–6 пары):\n👉 {free_all_str}"
+                )
             )
         )
         blocks.append(InputRichBlockDivider())
 
-    # Таблица/список по каждой паре
+    # Список по каждой паре
     for s in data["slots_summary"]:
         slot_info = TIMESLOTS.get(s["slot_id"], {"order": str(s["slot_id"]), "time": "--:--"})
         pot_str = ", ".join(s["free_potochki"]) if s["free_potochki"] else "все заняты 🔒"
         
-        line_text = f"📍 <b>{slot_info['order']} пара ({slot_info['time']})</b>\n🏛 Поточки: <b>{pot_str}</b>"
+        line_text = f"📍 {slot_info['order']} пара ({slot_info['time']})\n🏛 Поточки: {pot_str}"
         if not only_potochki:
             cls_cnt = s["free_classrooms_count"]
-            line_text += f"\n🚪 Свободных кабинетов: <b>{cls_cnt}</b> шт."
+            line_text += f"\n🚪 Свободных кабинетов: {cls_cnt} шт."
 
         blocks.append(InputRichBlockParagraph(text=line_text))
 
@@ -634,70 +636,6 @@ def format_free_rooms_day_summary_rich(
     blocks.append(
         InputRichBlockParagraph(
             text=RichTextItalic(text="💡 Чтобы увидеть полный список кабинетов на конкретную пару, спросите: «свободные во вторник на 3 паре»")
-        )
-    )
-
-    return InputRichMessage(blocks=blocks)
-
-def format_room_rich_schedule(
-    room_title: str,
-    start_monday: date,
-    day_index: int,
-    target_slot: int | None,
-    slots: list[RoomSlotDTO]
-) -> InputRichMessage:
-    day_name = DAYS_NAMES[day_index]
-    target_date = start_monday + timedelta(days=day_index)
-    formatted_date = target_date.strftime("%d.%m.%Y")
-
-    day_slots = [s for s in slots if s.day == day_index]
-    if target_slot is not None:
-        day_slots = [s for s in day_slots if s.slot_id == target_slot]
-
-    day_slots.sort(key=lambda x: x.slot_id)
-
-    blocks = [
-        InputRichBlockSectionHeading(
-            text=RichTextBold(
-                text=f"🚪 {room_title}\n📅 {day_name}, {formatted_date}"
-            ),
-            size=2,
-        )
-    ]
-
-    if not day_slots:
-        blocks.append(
-            InputRichBlockParagraph(
-                text=RichTextItalic(text="🎉 В это время аудитория свободна! Можно спокойно заниматься ✨")
-            )
-        )
-        return InputRichMessage(blocks=blocks)
-
-    rows = [[
-        RichBlockTableCell(text=RichTextBold(text="Пара"), is_header=True, align="center", valign="middle"),
-        RichBlockTableCell(text=RichTextBold(text="Группа"), is_header=True, align="center", valign="middle"),
-        RichBlockTableCell(text=RichTextBold(text="Предмет"), is_header=True, align="left", valign="middle"),
-        RichBlockTableCell(text=RichTextBold(text="Преподаватель"), is_header=True, align="left", valign="middle"),
-    ]]
-
-    for s in day_slots:
-        slot_info = TIMESLOTS.get(s.slot_id, {"order": str(s.slot_id), "time": "--:--"})
-        start_time = slot_info["time"].split(" - ")[0]
-        type_str = f" [{s.lesson_type}]" if s.lesson_type else ""
-        teacher_str = short_name(s.teacher)
-
-        rows.append([
-            RichBlockTableCell(text=f"{slot_info['order']} ({start_time})", align="center", valign="middle"),
-            RichBlockTableCell(text=RichTextBold(text=s.groups_display), align="center", valign="middle"),
-            RichBlockTableCell(text=f"{s.subject}{type_str}", align="left", valign="middle"),
-            RichBlockTableCell(text=RichTextItalic(text=teacher_str), align="left", valign="middle"),
-        ])
-
-    blocks.append(
-        InputRichBlockTable(
-            cells=rows,
-            is_bordered=True,
-            is_striped=True,
         )
     )
 
@@ -725,9 +663,9 @@ def format_free_rooms_rich_message(
         )
     ]
 
-    # Поточные аудитории
+    # Поточные аудитории (1, 2, 3)
     if free_potochki:
-        p_text = " • ".join([f"<b>{p}</b>" for p in free_potochki])
+        p_text = " • ".join(free_potochki)
         blocks.append(
             InputRichBlockParagraph(
                 text=RichTextBold(text=f"🏛 Свободные поточки:\n👉 {p_text}")
@@ -743,12 +681,12 @@ def format_free_rooms_rich_message(
     if not only_potochki:
         blocks.append(InputRichBlockDivider())
         if free_classrooms:
-            # Разбиваем на компактные аккуратные строки по 6-7 аудиторий
+            # Разбиваем на компактные строки по 6 аудиторий
             chunks = [free_classrooms[i:i + 6] for i in range(0, len(free_classrooms), 6)]
-            formatted_chunks = "\n".join([" • ".join([f"<code>{r}</code>" for r in ch]) for ch in chunks])
+            formatted_chunks = "\n".join([" • ".join(ch) for ch in chunks])
             blocks.append(
                 InputRichBlockParagraph(
-                    text=f"🚪 <b>Свободные кабинеты и лаборатории:</b>\n{formatted_chunks}"
+                    text=f"🚪 Свободные кабинеты и лаборатории:\n{formatted_chunks}"
                 )
             )
         else:

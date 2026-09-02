@@ -28,6 +28,8 @@ TEACHER_STOP_WORDS = {
     "привет", "хай", "ку", "скиньте", "лаба", "лабу", "дз", "лекция", "лекции"
 }
 
+KNOWN_POTOCHKI = ["1 п.а.", "2 п.а.", "3 п.а."]
+
 
 def _extract_surname(full_teacher_name: str) -> str:
     clean = re.sub(
@@ -66,6 +68,17 @@ def _match_teacher_surname(query_word: str, full_teacher_name: str) -> bool:
         return True
 
     return False
+
+
+def _is_valid_classroom_number(room_name: str) -> bool:
+    r = room_name.strip().lower()
+    if not r or r in ("—", "-", "?", "none", "null", "дистанционно", "zoom", "teams", "онлайн", "спортзал", "бассейн", "стадион"):
+        return False
+    # Исключаем поточки
+    if any(p_num in r and ("п.а" in r or "па" in r or "поточ" in r) for p_num in ["1", "2", "3"]):
+        return False
+    # Кабинет должен содержать номер (например 102, 226, 301а)
+    return bool(re.search(r"\b\d{2,4}[а-яa-z]?\b", r))
 
 
 class ScheduleCache:
@@ -160,7 +173,7 @@ class ScheduleCache:
 
             if l.room:
                 r_clean = l.room.strip()
-                if r_clean and r_clean not in ("—", "-", "?", "None"):
+                if _is_valid_classroom_number(r_clean):
                     new_rooms_set.add(r_clean)
 
             if l.teacher:
@@ -182,7 +195,7 @@ class ScheduleCache:
 
         logger.info(
             f"✨ [Cache] Кэш готов: {len(self._groups_by_id)} групп (1-5 курс), "
-            f"{len(db_lessons)} пар, {len(self._teachers_list)} преподавателей, {len(self._known_rooms)} аудиторий."
+            f"{len(db_lessons)} пар, {len(self._teachers_list)} преподавателей, {len(self._known_rooms)} учебных кабинетов"
         )
 
     def get_group_by_id(self, group_id: int) -> GroupDTO | None:
@@ -384,14 +397,14 @@ class ScheduleCache:
                 return False
             r = raw_room.strip().lower()
 
-            # Проверка поточек 1-4
+            # Проверка поточек 1-3
             if "п.а." in clean_q or "поточ" in clean_q or "па" in clean_q:
                 pot_num = clean_q[0]
                 if r == pot_num or bool(re.search(rf"\b{pot_num}\s*(?:п\.?а\.?|па|поточн[а-я]*|поточк[а-я]*)\b", r)):
                     return True
                 return False
 
-            # Проверка точного номера кабинета (например 208, 331, 104)
+            # Проверка точного номера кабинета
             return bool(re.search(rf"\b{re.escape(clean_q)}\b", r)) or clean_q in r
 
         all_matches: list[tuple[LessonDTO, GroupDTO]] = []
@@ -469,10 +482,8 @@ class ScheduleCache:
                             if l.room:
                                 occupied_rooms.add(l.room.strip().lower())
 
-        known_potochki = ["1 п.а.", "2 п.а.", "3 п.а.", "4 п.а."]
         free_potochki = []
-
-        for p in known_potochki:
+        for p in KNOWN_POTOCHKI:
             p_num = p[0]
             is_busy = any(
                 p_num in occ and ("п.а" in occ or "па" in occ or "поточ" in occ or occ == p_num)
@@ -487,8 +498,6 @@ class ScheduleCache:
         free_classrooms = []
         for r in sorted(list(self._known_rooms)):
             r_lower = r.lower().strip()
-            if any(p_num in r_lower and ("п.а" in r_lower or "па" in r_lower or "поточ" in r_lower) for p_num in ["1", "2", "3", "4"]):
-                continue
             if r_lower not in occupied_rooms:
                 free_classrooms.append(r)
 
@@ -502,7 +511,6 @@ class ScheduleCache:
         only_potochki: bool = False
     ) -> dict[str, Any]:
         monday = target_date - timedelta(days=target_date.weekday())
-        known_potochki = ["1 п.а.", "2 п.а.", "3 п.а.", "4 п.а."]
 
         slots_occupied: dict[int, set[str]] = defaultdict(set)
         all_day_occupied: set[str] = set()
@@ -527,7 +535,7 @@ class ScheduleCache:
             occupied_now = slots_occupied.get(slot_id, set())
 
             free_pot = []
-            for p in known_potochki:
+            for p in KNOWN_POTOCHKI:
                 p_num = p[0]
                 is_busy = any(
                     p_num in occ and ("п.а" in occ or "па" in occ or "поточ" in occ or occ == p_num)
@@ -540,8 +548,6 @@ class ScheduleCache:
             if not only_potochki:
                 for r in sorted(list(self._known_rooms)):
                     r_lower = r.lower().strip()
-                    if any(p_num in r_lower and ("п.а" in r_lower or "па" in r_lower or "поточ" in r_lower) for p_num in ["1", "2", "3", "4"]):
-                        continue
                     if r_lower not in occupied_now:
                         free_cls.append(r)
 
@@ -556,8 +562,6 @@ class ScheduleCache:
         if not only_potochki:
             for r in sorted(list(self._known_rooms)):
                 r_lower = r.lower().strip()
-                if any(p_num in r_lower and ("п.а" in r_lower or "па" in r_lower or "поточ" in r_lower) for p_num in ["1", "2", "3", "4"]):
-                    continue
                 if r_lower not in all_day_occupied:
                     all_day_free_classrooms.append(r)
 
