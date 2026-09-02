@@ -1,5 +1,6 @@
 import re
 from datetime import date, datetime, timedelta
+from collections import defaultdict
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
@@ -16,14 +17,17 @@ from services.formatter import (
     format_full_week_rich_message, 
     format_teacher_rich_schedule,
     format_subject_rich_schedule,
+    format_room_rich_schedule,
+    format_free_rooms_day_summary_rich,
+    format_free_rooms_rich_message,
+    build_specializations_rich_message,
+    short_name,
     TIMESLOTS, 
     DAYS_NAMES
 )
 from services.query_parser import parse_schedule_query
 from keyboards import week_nav_kb
 from config import get_minsk_now
-from collections import defaultdict
-from services.formatter import short_name
 
 router = Router()
 
@@ -64,6 +68,11 @@ async def send_week_schedule(
         for l in lessons
     )
 
+    has_specializations = any(
+        l.specialization_order is not None or (l.common_discipline and not l.subgroup)
+        for l in lessons
+    )
+
     rich_msg = format_full_week_rich_message(
         user_name=user_name,
         group_name=group_title,
@@ -78,7 +87,8 @@ async def send_week_schedule(
             actual_monday, 
             group_id=group.id, 
             subgroup=target_subgroup,
-            has_offcampus=has_offcampus
+            has_offcampus=has_offcampus,
+            has_specializations=has_specializations
         )
     )
 
@@ -156,6 +166,7 @@ async def callback_switch_week_by_date(callback: CallbackQuery, bot: Bot):
         bot=bot
     )
 
+
 @router.callback_query(F.data.startswith("week_loc_"))
 async def callback_show_offcampus_locations(callback: CallbackQuery):
     raw_payload = callback.data.replace("week_loc_", "")
@@ -197,7 +208,6 @@ async def callback_show_offcampus_locations(callback: CallbackQuery):
 
     actual_monday, lessons = schedule_cache.get_lessons_for_group(group.id, group.course, target_monday)
 
-    # Фильтруем только выездные пары
     offcampus_lessons = [
         l for l in lessons
         if l.address and "курчатова" not in l.address.lower()
@@ -250,6 +260,55 @@ async def callback_show_offcampus_locations(callback: CallbackQuery):
     await callback.message.reply("\n".join(text_blocks))
 
 
+@router.callback_query(F.data.startswith("week_spec_"))
+async def callback_show_week_specializations(callback: CallbackQuery, bot: Bot):
+    raw_payload = callback.data.replace("week_spec_", "")
+    parts = raw_payload.split("_")
+    date_str = parts[0]
+
+    try:
+        target_monday = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        await callback.answer()
+        return
+
+    is_group_chat = callback.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
+
+    if len(parts) >= 3 and parts[1].isdigit():
+        group_id = int(parts[1])
+    else:
+        async with async_session_maker() as session:
+            if is_group_chat:
+                chat_obj = await session.get(Chat, callback.message.chat.id)
+                if not chat_obj or not chat_obj.group_id:
+                    await callback.answer("Группа не выбрана", show_alert=True)
+                    return
+                group_id = chat_obj.group_id
+            else:
+                user = await session.get(User, callback.from_user.id)
+                if not user or not user.group_id:
+                    await callback.answer("Сначала выберите группу", show_alert=True)
+                    return
+                group_id = user.group_id
+
+    group = schedule_cache.get_group_by_id(group_id)
+    if not group:
+        await callback.answer("Группа не найдена", show_alert=True)
+        return
+
+    actual_monday, lessons = schedule_cache.get_lessons_for_group(group.id, group.course, target_monday)
+    group_title = get_group_display_title(group)
+
+    rich_msg = build_specializations_rich_message(
+        group_name=group_title,
+        start_monday=actual_monday,
+        lessons=lessons
+    )
+
+    await callback.answer()
+    await bot.send_rich_message(chat_id=callback.message.chat.id, rich_message=rich_msg)
+
+
 @router.message(F.text)
 async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot):
     raw_text = (message.text or "").strip()
@@ -259,11 +318,11 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
     is_group_chat = message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
     query_text = raw_text
 
-    # 1. В беседах бот реагирует ТОЛЬКО на обращение "Бот ..." в начале сообщения
+    # 1. В беседах бот реагирует ТОЛЬКО на обращение "Бот ..." (Игнорирует блеблебле, это важно)
     if is_group_chat:
         match_bot = re.match(r"^бот\b(?:[\s,!:—–-]+(.*)|$)", raw_text, re.IGNORECASE)
         if not match_bot:
-            return  # Игнорируем обычный блеблебле
+            return
 
         extracted_query = match_bot.group(1)
         if not extracted_query or not extracted_query.strip():
@@ -288,7 +347,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
     else:
         chat_group_id = None
 
-    # 2. Поиск преподавателя (In-Memory)
+    # 2. Поиск преподавателя (In-Memory O(1))
     now_date = get_minsk_now().date()
     teacher_match = schedule_cache.find_teacher_schedule(query_text, now_date)
     if teacher_match:
@@ -301,14 +360,90 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg)
         return
 
-    # 3. Парсинг запроса на расписание
+    # 3. Парсинг запроса
     parsed = parse_schedule_query(query_text)
     if not parsed:
         return
 
     await state.clear()
 
-    # 4. Определение целевой группы и подгруппы
+    # 3.1. Запрос свободных аудиторий (НЕ требует привязки к группе)
+    if parsed["type"] == "free_rooms":
+        if parsed["day_index"] == 6:
+            await message.answer("🎉 <b>В воскресенье занятий нет!</b> Все аудитории факультета отдыхают ✨")
+            return
+
+        slot_id = parsed.get("slot_id")
+
+        # Сводка на весь день
+        if slot_id is None and not parsed.get("is_current"):
+            day_data = schedule_cache.find_free_rooms_whole_day(
+                target_date=parsed["date"],
+                day_index=parsed["day_index"],
+                only_potochki=parsed["only_potochki"]
+            )
+            rich_msg = format_free_rooms_day_summary_rich(
+                target_date=parsed["date"],
+                day_index=parsed["day_index"],
+                data=day_data,
+                only_potochki=parsed["only_potochki"]
+            )
+            await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg)
+            return
+
+        # Запрос на текущую пару ("сейчас")
+        if slot_id is None and parsed.get("is_current"):
+            slot_id = get_active_slot_id()
+            if slot_id is None:
+                await message.answer("🌴 <b>Все пары на сегодня уже завершились!</b> Весь корпус свободен ✨")
+                return
+
+        # Список на конкретную пару
+        free_potochki, free_classrooms = schedule_cache.find_free_rooms(
+            target_date=parsed["date"],
+            day_index=parsed["day_index"],
+            slot_id=slot_id,
+            only_potochki=parsed["only_potochki"]
+        )
+
+        rich_msg = format_free_rooms_rich_message(
+            target_date=parsed["date"],
+            day_index=parsed["day_index"],
+            slot_id=slot_id,
+            free_potochki=free_potochki,
+            free_classrooms=free_classrooms,
+            only_potochki=parsed["only_potochki"]
+        )
+        await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg)
+        return
+
+    # 3.2. Расписание конкретной аудитории
+    if parsed["type"] == "room":
+        if parsed["day_index"] == 6:
+            await message.answer(f"🎉 <b>В воскресенье</b> в <b>{parsed['room_display']}</b> пар нет — корпус закрыт ✨")
+            return
+
+        res = schedule_cache.find_room_schedule(parsed["room_query"], parsed["date"])
+        if not res:
+            await message.answer(f"🌴 В аудитории «<b>{parsed['room_display']}</b>» на этой неделе запланированных пар не найдено (или она свободна)!")
+            return
+
+        display_room, actual_monday, room_slots = res
+        target_slot = parsed.get("slot_id")
+        if parsed.get("is_current"):
+            target_slot = get_active_slot_id()
+
+        rich_msg = format_room_rich_schedule(
+            room_title=f"{parsed['room_display']} ({display_room})",
+            start_monday=actual_monday,
+            day_index=parsed["day_index"],
+            target_slot=target_slot,
+            slots=room_slots
+        )
+        await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg)
+        return
+
+    # 4. Определение целевой группы для обычных запросов
     if parsed.get("target_group"):
         t_course = parsed["target_group"]["course"]
         t_num = parsed["target_group"]["group_number"]
@@ -343,7 +478,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
 
     group_display_title = get_group_display_title(group)
 
-    # 5. Поиск пар по конкретному предмету
+    # 5. Поиск пар по предмету
     if parsed["type"] == "subject":
         target_group_dict = parsed.get("target_group")
         q_course = parsed.get("target_course")

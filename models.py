@@ -88,15 +88,9 @@ class Week(Base):
 class Lesson(Base):
     __tablename__ = "lessons"
 
-    id: Mapped[int] = mapped_column(
-        primary_key=True, autoincrement=True
-    )
-    group_id: Mapped[int] = mapped_column(
-        ForeignKey("groups.id", ondelete="CASCADE"), index=True
-    )
-    week_id: Mapped[int] = mapped_column(
-        ForeignKey("weeks.id", ondelete="CASCADE"), index=True
-    )
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), index=True)
+    week_id: Mapped[int] = mapped_column(ForeignKey("weeks.id", ondelete="CASCADE"), index=True)
     day: Mapped[int] = mapped_column(SmallInteger, index=True)
     slot_id: Mapped[int] = mapped_column(SmallInteger)
     subject: Mapped[str] = mapped_column()
@@ -105,6 +99,9 @@ class Lesson(Base):
     room: Mapped[str | None] = mapped_column(default=None)
     address: Mapped[str | None] = mapped_column(default=None)
     subgroup: Mapped[int | None] = mapped_column(SmallInteger, default=None)
+
+    specialization_order: Mapped[int | None] = mapped_column(SmallInteger, default=None, nullable=True)
+    common_discipline: Mapped[str | None] = mapped_column(String, default=None, nullable=True)
 
     group: Mapped["Group"] = relationship(back_populates="lessons")
     week: Mapped["Week"] = relationship(back_populates="lessons")

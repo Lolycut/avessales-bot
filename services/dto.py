@@ -32,6 +32,8 @@ class LessonDTO:
     room: str | None = None
     address: str | None = None
     subgroup: int | None = None
+    specialization_order: int | None = None
+    common_discipline: str | None = None
 
 
 @dataclass(slots=True)
@@ -72,3 +74,16 @@ class ScheduleChangeDTO:
     room: str | None = None
     teacher: str | None = None
     details: list[str] = field(default_factory=list)
+
+@dataclass(slots=True)
+class RoomSlotDTO:
+    day: int
+    slot_id: int
+    subject: str
+    lesson_type: str
+    room: str
+    address: str | None
+    teacher: str | None
+    subgroup: int | None
+    groups: list[str] = field(default_factory=list)
+    groups_display: str = ""

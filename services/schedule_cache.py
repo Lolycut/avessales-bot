@@ -6,8 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Group, Week, Lesson
-from services.dto import GroupDTO, WeekDTO, LessonDTO, TeacherSlotDTO, SubjectSlotDTO
-from services.subject_dict import SUBJECT_ALIASES, extract_subject_from_query
+from services.dto import GroupDTO, WeekDTO, LessonDTO, TeacherSlotDTO, SubjectSlotDTO, RoomSlotDTO
+from services.subject_dict import SUBJECT_ALIASES
 from config import logger
 
 TEACHER_STOP_WORDS = {
@@ -76,6 +76,7 @@ class ScheduleCache:
         self._lessons_by_group_week: dict[tuple[int, int], list[LessonDTO]] = {}
         self._teacher_records: dict[str, list[tuple[LessonDTO, GroupDTO, WeekDTO]]] = {}
         self._teachers_list: list[str] = []
+        self._known_rooms: set[str] = set()
         self._is_ready: bool = False
 
     @property
@@ -91,6 +92,7 @@ class ScheduleCache:
             "weeks_count": total_weeks,
             "lessons_count": total_lessons,
             "teachers_count": len(self._teachers_list),
+            "rooms_count": len(self._known_rooms),
         }
 
     async def reload_from_db(self, session: AsyncSession) -> None:
@@ -136,6 +138,7 @@ class ScheduleCache:
         new_lessons_by_group_week: dict[tuple[int, int], list[LessonDTO]] = defaultdict(list)
         new_teacher_records: dict[str, list[tuple[LessonDTO, GroupDTO, WeekDTO]]] = defaultdict(list)
         new_teachers_set: set[str] = set()
+        new_rooms_set: set[str] = set()
 
         for l in db_lessons:
             lesson_dto = LessonDTO(
@@ -149,9 +152,16 @@ class ScheduleCache:
                 teacher=l.teacher,
                 room=l.room,
                 address=l.address,
-                subgroup=l.subgroup
+                subgroup=l.subgroup,
+                specialization_order=getattr(l, "specialization_order", None),
+                common_discipline=getattr(l, "common_discipline", None)
             )
             new_lessons_by_group_week[(l.group_id, l.week_id)].append(lesson_dto)
+
+            if l.room:
+                r_clean = l.room.strip()
+                if r_clean and r_clean not in ("—", "-", "?", "None"):
+                    new_rooms_set.add(r_clean)
 
             if l.teacher:
                 teacher_clean = l.teacher.strip()
@@ -167,11 +177,12 @@ class ScheduleCache:
         self._lessons_by_group_week = dict(new_lessons_by_group_week)
         self._teacher_records = dict(new_teacher_records)
         self._teachers_list = sorted(list(new_teachers_set))
+        self._known_rooms = new_rooms_set
         self._is_ready = True
 
         logger.info(
-            f"✨ [Cache] Кэш готов: {len(self._groups_by_id)} групп, "
-            f"{len(db_lessons)} пар, {len(self._teachers_list)} преподавателей."
+            f"✨ [Cache] Кэш готов: {len(self._groups_by_id)} групп (1-5 курс), "
+            f"{len(db_lessons)} пар, {len(self._teachers_list)} преподавателей, {len(self._known_rooms)} аудиторий."
         )
 
     def get_group_by_id(self, group_id: int) -> GroupDTO | None:
@@ -308,7 +319,6 @@ class ScheduleCache:
 
                 groups_in_course = self.get_all_groups_for_course(c)
                 for g in groups_in_course:
-                    # Фильтр по конкретной группе (если запрошено, например, 2-41)
                     if query_group_num and str(g.number).strip() != str(query_group_num).strip():
                         continue
 
@@ -325,11 +335,9 @@ class ScheduleCache:
         if not records:
             return None
 
-        # Определение сасного заголовка дисциплины
         subject_names = [r[0].subject for r in records]
         display_title = Counter(subject_names).most_common(1)[0][0] if subject_names else canon_subject.capitalize()
 
-        # Формирование бейджа фильтра (Группа 2-41 / 2 курс)
         if query_group_num:
             badge = f"👥 Группа {query_course}-{query_group_num}" if query_course else f"👥 Группа {query_group_num}"
         elif query_course:
@@ -365,6 +373,200 @@ class ScheduleCache:
             lessons_list.append(item)
 
         return display_title, actual_monday, lessons_list, badge
+
+    # Поиск расписания конкретной аудитории / поточки
+    def find_room_schedule(self, room_query: str, target_date: date) -> tuple[str, date, list[RoomSlotDTO]] | None:
+        clean_q = room_query.lower().strip()
+        monday = target_date - timedelta(days=target_date.weekday())
+
+        def is_room_match(raw_room: str | None) -> bool:
+            if not raw_room:
+                return False
+            r = raw_room.strip().lower()
+
+            # Проверка поточек 1-4
+            if "п.а." in clean_q or "поточ" in clean_q or "па" in clean_q:
+                pot_num = clean_q[0]
+                if r == pot_num or bool(re.search(rf"\b{pot_num}\s*(?:п\.?а\.?|па|поточн[а-я]*|поточк[а-я]*)\b", r)):
+                    return True
+                return False
+
+            # Проверка точного номера кабинета (например 208, 331, 104)
+            return bool(re.search(rf"\b{re.escape(clean_q)}\b", r)) or clean_q in r
+
+        all_matches: list[tuple[LessonDTO, GroupDTO]] = []
+        for course, weeks in self._weeks_by_course.items():
+            target_w = next((w for w in weeks if w.start_date == monday), None)
+            if not target_w and weeks:
+                target_w = weeks[0]
+            if not target_w:
+                continue
+
+            for g in self.get_all_groups_for_course(course):
+                lessons = self._lessons_by_group_week.get((g.id, target_w.id), [])
+                for l in lessons:
+                    if is_room_match(l.room):
+                        all_matches.append((l, g))
+
+        if not all_matches:
+            return None
+
+        matched_room_names = [l[0].room for l in all_matches if l[0].room]
+        display_room = Counter(matched_room_names).most_common(1)[0][0] if matched_room_names else room_query
+
+        grouped: dict[tuple, RoomSlotDTO] = {}
+        for lesson, group in all_matches:
+            g_tag = f"{group.course}-{group.number}" if group else "?"
+            key = (lesson.day, lesson.slot_id, lesson.subject, lesson.teacher, lesson.lesson_type)
+
+            if key not in grouped:
+                grouped[key] = RoomSlotDTO(
+                    day=lesson.day,
+                    slot_id=lesson.slot_id,
+                    subject=lesson.subject,
+                    lesson_type=lesson.lesson_type,
+                    room=display_room,
+                    address=lesson.address,
+                    teacher=lesson.teacher,
+                    subgroup=lesson.subgroup,
+                    groups=[g_tag]
+                )
+            else:
+                if g_tag not in grouped[key].groups:
+                    grouped[key].groups.append(g_tag)
+
+        slots_list = list(grouped.values())
+        for s in slots_list:
+            s.groups.sort()
+            s.groups_display = ", ".join(s.groups)
+
+        slots_list.sort(key=lambda x: (x.day, x.slot_id))
+        return display_room, monday, slots_list
+
+    # Поиск свободных аудиторий на конкретную пару
+    def find_free_rooms(
+        self,
+        target_date: date,
+        day_index: int,
+        slot_id: int | None = None,
+        only_potochki: bool = False
+    ) -> tuple[list[str], list[str]]:
+        monday = target_date - timedelta(days=target_date.weekday())
+        occupied_rooms: set[str] = set()
+
+        for course, weeks in self._weeks_by_course.items():
+            target_w = next((w for w in weeks if w.start_date == monday), None)
+            if not target_w and weeks:
+                target_w = weeks[0]
+            if not target_w:
+                continue
+
+            for g in self.get_all_groups_for_course(course):
+                lessons = self._lessons_by_group_week.get((g.id, target_w.id), [])
+                for l in lessons:
+                    if l.day == day_index:
+                        if slot_id is None or l.slot_id == slot_id:
+                            if l.room:
+                                occupied_rooms.add(l.room.strip().lower())
+
+        known_potochki = ["1 п.а.", "2 п.а.", "3 п.а.", "4 п.а."]
+        free_potochki = []
+
+        for p in known_potochki:
+            p_num = p[0]
+            is_busy = any(
+                p_num in occ and ("п.а" in occ or "па" in occ or "поточ" in occ or occ == p_num)
+                for occ in occupied_rooms
+            )
+            if not is_busy:
+                free_potochki.append(p)
+
+        if only_potochki:
+            return free_potochki, []
+
+        free_classrooms = []
+        for r in sorted(list(self._known_rooms)):
+            r_lower = r.lower().strip()
+            if any(p_num in r_lower and ("п.а" in r_lower or "па" in r_lower or "поточ" in r_lower) for p_num in ["1", "2", "3", "4"]):
+                continue
+            if r_lower not in occupied_rooms:
+                free_classrooms.append(r)
+
+        return free_potochki, free_classrooms
+
+    # Поиск свободных аудиторий на весь день целиком
+    def find_free_rooms_whole_day(
+        self,
+        target_date: date,
+        day_index: int,
+        only_potochki: bool = False
+    ) -> dict[str, Any]:
+        monday = target_date - timedelta(days=target_date.weekday())
+        known_potochki = ["1 п.а.", "2 п.а.", "3 п.а.", "4 п.а."]
+
+        slots_occupied: dict[int, set[str]] = defaultdict(set)
+        all_day_occupied: set[str] = set()
+
+        for course, weeks in self._weeks_by_course.items():
+            target_w = next((w for w in weeks if w.start_date == monday), None)
+            if not target_w and weeks:
+                target_w = weeks[0]
+            if not target_w:
+                continue
+
+            for g in self.get_all_groups_for_course(course):
+                lessons = self._lessons_by_group_week.get((g.id, target_w.id), [])
+                for l in lessons:
+                    if l.day == day_index and l.room:
+                        r_clean = l.room.strip().lower()
+                        slots_occupied[l.slot_id].add(r_clean)
+                        all_day_occupied.add(r_clean)
+
+        slots_summary = []
+        for slot_id in range(1, 7):
+            occupied_now = slots_occupied.get(slot_id, set())
+
+            free_pot = []
+            for p in known_potochki:
+                p_num = p[0]
+                is_busy = any(
+                    p_num in occ and ("п.а" in occ or "па" in occ or "поточ" in occ or occ == p_num)
+                    for occ in occupied_now
+                )
+                if not is_busy:
+                    free_pot.append(p)
+
+            free_cls = []
+            if not only_potochki:
+                for r in sorted(list(self._known_rooms)):
+                    r_lower = r.lower().strip()
+                    if any(p_num in r_lower and ("п.а" in r_lower or "па" in r_lower or "поточ" in r_lower) for p_num in ["1", "2", "3", "4"]):
+                        continue
+                    if r_lower not in occupied_now:
+                        free_cls.append(r)
+
+            slots_summary.append({
+                "slot_id": slot_id,
+                "free_potochki": free_pot,
+                "free_classrooms_count": len(free_cls),
+                "free_classrooms_preview": free_cls[:8]
+            })
+
+        all_day_free_classrooms = []
+        if not only_potochki:
+            for r in sorted(list(self._known_rooms)):
+                r_lower = r.lower().strip()
+                if any(p_num in r_lower and ("п.а" in r_lower or "па" in r_lower or "поточ" in r_lower) for p_num in ["1", "2", "3", "4"]):
+                    continue
+                if r_lower not in all_day_occupied:
+                    all_day_free_classrooms.append(r)
+
+        return {
+            "target_date": target_date,
+            "day_index": day_index,
+            "slots_summary": slots_summary,
+            "all_day_free": all_day_free_classrooms
+        }
 
 
 schedule_cache = ScheduleCache()

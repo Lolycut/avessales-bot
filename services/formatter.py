@@ -1,8 +1,9 @@
 import re
 from datetime import date, timedelta
 from collections import defaultdict
+from typing import Any
 
-from services.dto import LessonDTO, TeacherSlotDTO, SubjectSlotDTO, ScheduleChangeDTO
+from services.dto import LessonDTO, RoomSlotDTO, TeacherSlotDTO, SubjectSlotDTO, ScheduleChangeDTO
 from aiogram.types import (
     InputRichMessage,
     InputRichBlockSectionHeading,
@@ -503,3 +504,260 @@ def build_schedule_changes_rich_message(
                 blocks.append(InputRichBlockParagraph(text=RichTextBold(text=card_text)))
 
     return InputRichMessage(blocks=blocks)
+
+def build_specializations_rich_message(
+    group_name: str,
+    start_monday: date,
+    lessons: list[LessonDTO],
+) -> InputRichMessage:
+    end_saturday = start_monday + timedelta(days=5)
+
+    # Отбираем ТОЛЬКО пары-профилизации
+    spec_lessons = [l for l in lessons if l.specialization_order is not None or (l.common_discipline and not l.subgroup)]
+
+    blocks = [
+        InputRichBlockSectionHeading(
+            text=RichTextBold(
+                text=f"🧬 Профилизации и спецкурсы\n👥 {group_name} • {start_monday.strftime('%d.%m')} — {end_saturday.strftime('%d.%m')}"
+            ),
+            size=2,
+        )
+    ]
+
+    if not spec_lessons:
+        blocks.append(
+            InputRichBlockParagraph(
+                text=RichTextItalic(text="На этой неделе профилизаций и спецкурсов нет ✨")
+            )
+        )
+        return InputRichMessage(blocks=blocks)
+
+    # Группируем по (day, slot_id)
+    slots_map = defaultdict(list)
+    for l in spec_lessons:
+        slots_map[(l.day, l.slot_id)].append(l)
+
+    for (day_i, slot_id) in sorted(slots_map.keys(), key=lambda x: (x[0], x[1])):
+        day_date = start_monday + timedelta(days=day_i)
+        day_name = DAYS_NAMES[day_i]
+        slot_info = TIMESLOTS.get(slot_id, {"order": str(slot_id), "time": "--:--"})
+        
+        slot_items = slots_map[(day_i, slot_id)]
+        slot_items.sort(key=lambda x: x.specialization_order or 0)
+
+        common_name = next((l.common_discipline for l in slot_items if l.common_discipline), "Профилизации")
+
+        blocks.append(InputRichBlockDivider())
+        blocks.append(
+            InputRichBlockParagraph(
+                text=RichTextBold(
+                    text=f"📍 {day_name} ({day_date.strftime('%d.%m')}), {slot_info['order']} пара ({slot_info['time']})\n📚 {common_name}"
+                )
+            )
+        )
+
+        rows = [[
+            RichBlockTableCell(text=RichTextBold(text="№"), is_header=True, align="center", valign="middle"),
+            RichBlockTableCell(text=RichTextBold(text="Ауд."), is_header=True, align="center", valign="middle"),
+            RichBlockTableCell(text=RichTextBold(text="Кафедра / Дисциплина"), is_header=True, align="left", valign="middle"),
+            RichBlockTableCell(text=RichTextBold(text="Преподаватель"), is_header=True, align="left", valign="middle"),
+        ]]
+
+        for l in slot_items:
+            order_label = f"#{l.specialization_order}" if l.specialization_order else "•"
+            room_str = l.room or "—"
+            if l.address and "курчатова" not in l.address.lower():
+                room_str = f"{room_str} ⚠️"
+
+            type_str = f" [{l.lesson_type}]" if l.lesson_type else ""
+            teacher_str = short_name(l.teacher)
+
+            rows.append([
+                RichBlockTableCell(text=order_label, align="center", valign="middle"),
+                RichBlockTableCell(text=RichTextBold(text=room_str), align="center", valign="middle"),
+                RichBlockTableCell(text=f"{l.subject}{type_str}", align="left", valign="middle"),
+                RichBlockTableCell(text=RichTextItalic(text=teacher_str), align="left", valign="middle"),
+            ])
+
+        blocks.append(
+            InputRichBlockTable(
+                cells=rows,
+                is_bordered=True,
+                is_striped=True,
+            )
+        )
+
+    return InputRichMessage(blocks=blocks)
+
+
+def format_free_rooms_day_summary_rich(
+    target_date: date,
+    day_index: int,
+    data: dict[str, Any],
+    only_potochki: bool = False
+) -> InputRichMessage:
+    day_name = DAYS_NAMES[day_index]
+    formatted_date = target_date.strftime("%d.%m.%Y")
+
+    blocks = [
+        InputRichBlockSectionHeading(
+            text=RichTextBold(
+                text=f"🟢 Свободные аудитории на весь день\n📅 {day_name}, {formatted_date}"
+            ),
+            size=2,
+        )
+    ]
+
+    # Если есть аудитории, свободные вообще весь день
+    if data["all_day_free"] and not only_potochki:
+        free_all_str = " • ".join([f"<code>{r}</code>" for r in data["all_day_free"][:12]])
+        blocks.append(
+            InputRichBlockParagraph(
+                text=f"✨ <b>Свободны ВЕСЬ ДЕНЬ (1–6 пары):</b>\n👉 {free_all_str}"
+            )
+        )
+        blocks.append(InputRichBlockDivider())
+
+    # Таблица/список по каждой паре
+    for s in data["slots_summary"]:
+        slot_info = TIMESLOTS.get(s["slot_id"], {"order": str(s["slot_id"]), "time": "--:--"})
+        pot_str = ", ".join(s["free_potochki"]) if s["free_potochki"] else "все заняты 🔒"
+        
+        line_text = f"📍 <b>{slot_info['order']} пара ({slot_info['time']})</b>\n🏛 Поточки: <b>{pot_str}</b>"
+        if not only_potochki:
+            cls_cnt = s["free_classrooms_count"]
+            line_text += f"\n🚪 Свободных кабинетов: <b>{cls_cnt}</b> шт."
+
+        blocks.append(InputRichBlockParagraph(text=line_text))
+
+    blocks.append(InputRichBlockDivider())
+    blocks.append(
+        InputRichBlockParagraph(
+            text=RichTextItalic(text="💡 Чтобы увидеть полный список кабинетов на конкретную пару, спросите: «свободные во вторник на 3 паре»")
+        )
+    )
+
+    return InputRichMessage(blocks=blocks)
+
+def format_room_rich_schedule(
+    room_title: str,
+    start_monday: date,
+    day_index: int,
+    target_slot: int | None,
+    slots: list[RoomSlotDTO]
+) -> InputRichMessage:
+    day_name = DAYS_NAMES[day_index]
+    target_date = start_monday + timedelta(days=day_index)
+    formatted_date = target_date.strftime("%d.%m.%Y")
+
+    day_slots = [s for s in slots if s.day == day_index]
+    if target_slot is not None:
+        day_slots = [s for s in day_slots if s.slot_id == target_slot]
+
+    day_slots.sort(key=lambda x: x.slot_id)
+
+    blocks = [
+        InputRichBlockSectionHeading(
+            text=RichTextBold(
+                text=f"🚪 {room_title}\n📅 {day_name}, {formatted_date}"
+            ),
+            size=2,
+        )
+    ]
+
+    if not day_slots:
+        blocks.append(
+            InputRichBlockParagraph(
+                text=RichTextItalic(text="🎉 В это время аудитория свободна! Можно спокойно заниматься ✨")
+            )
+        )
+        return InputRichMessage(blocks=blocks)
+
+    rows = [[
+        RichBlockTableCell(text=RichTextBold(text="Пара"), is_header=True, align="center", valign="middle"),
+        RichBlockTableCell(text=RichTextBold(text="Группа"), is_header=True, align="center", valign="middle"),
+        RichBlockTableCell(text=RichTextBold(text="Предмет"), is_header=True, align="left", valign="middle"),
+        RichBlockTableCell(text=RichTextBold(text="Преподаватель"), is_header=True, align="left", valign="middle"),
+    ]]
+
+    for s in day_slots:
+        slot_info = TIMESLOTS.get(s.slot_id, {"order": str(s.slot_id), "time": "--:--"})
+        start_time = slot_info["time"].split(" - ")[0]
+        type_str = f" [{s.lesson_type}]" if s.lesson_type else ""
+        teacher_str = short_name(s.teacher)
+
+        rows.append([
+            RichBlockTableCell(text=f"{slot_info['order']} ({start_time})", align="center", valign="middle"),
+            RichBlockTableCell(text=RichTextBold(text=s.groups_display), align="center", valign="middle"),
+            RichBlockTableCell(text=f"{s.subject}{type_str}", align="left", valign="middle"),
+            RichBlockTableCell(text=RichTextItalic(text=teacher_str), align="left", valign="middle"),
+        ])
+
+    blocks.append(
+        InputRichBlockTable(
+            cells=rows,
+            is_bordered=True,
+            is_striped=True,
+        )
+    )
+
+    return InputRichMessage(blocks=blocks)
+
+
+def format_free_rooms_rich_message(
+    target_date: date,
+    day_index: int,
+    slot_id: int,
+    free_potochki: list[str],
+    free_classrooms: list[str],
+    only_potochki: bool = False
+) -> InputRichMessage:
+    day_name = DAYS_NAMES[day_index]
+    formatted_date = target_date.strftime("%d.%m.%Y")
+    slot_info = TIMESLOTS.get(slot_id, {"order": str(slot_id), "time": "--:--"})
+
+    blocks = [
+        InputRichBlockSectionHeading(
+            text=RichTextBold(
+                text=f"🟢 Свободные аудитории\n📅 {day_name}, {formatted_date} • {slot_info['order']} пара ({slot_info['time']})"
+            ),
+            size=2,
+        )
+    ]
+
+    # Поточные аудитории
+    if free_potochki:
+        p_text = " • ".join([f"<b>{p}</b>" for p in free_potochki])
+        blocks.append(
+            InputRichBlockParagraph(
+                text=RichTextBold(text=f"🏛 Свободные поточки:\n👉 {p_text}")
+            )
+        )
+    else:
+        blocks.append(
+            InputRichBlockParagraph(
+                text=RichTextItalic(text="🏛 Поточные аудитории: все заняты 🔒")
+            )
+        )
+
+    if not only_potochki:
+        blocks.append(InputRichBlockDivider())
+        if free_classrooms:
+            # Разбиваем на компактные аккуратные строки по 6-7 аудиторий
+            chunks = [free_classrooms[i:i + 6] for i in range(0, len(free_classrooms), 6)]
+            formatted_chunks = "\n".join([" • ".join([f"<code>{r}</code>" for r in ch]) for ch in chunks])
+            blocks.append(
+                InputRichBlockParagraph(
+                    text=f"🚪 <b>Свободные кабинеты и лаборатории:</b>\n{formatted_chunks}"
+                )
+            )
+        else:
+            blocks.append(
+                InputRichBlockParagraph(
+                    text=RichTextItalic(text="🚪 Учебные кабинеты: свободных не найдено")
+                )
+            )
+
+    return InputRichMessage(blocks=blocks)
+
+# Ну и говнище тут всё
