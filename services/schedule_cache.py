@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Group, Week, Lesson
 from services.dto import GroupDTO, WeekDTO, LessonDTO, TeacherSlotDTO, SubjectSlotDTO, RoomSlotDTO
-from services.subject_dict import SUBJECT_ALIASES
+from services.subject_dict import SUBJECT_REGISTRY
 from config import logger
 
 TEACHER_STOP_WORDS = {
