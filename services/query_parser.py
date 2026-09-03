@@ -51,6 +51,14 @@ ROOM_NUMBER_REGEX = re.compile(
 )
 
 GROUP_REGEX = re.compile(r"\b([1-5])\s*[-_/\\]\s*([0-9]+(?:-[0-9]+)*)(?!\s*-(?:я|ая|ей|ую|е|й))\b")
+STANDALONE_GROUP_REGEX = re.compile(
+    r"\b(?:гр(?:упп[а-я]*)?|группе|группы)\s*([0-9]{1,3})\b|\b([0-9]{1,3})\s*(?:гр(?:упп[а-я]*)?|группе|группы)\b",
+    re.IGNORECASE
+)
+ONLY_MY_GROUP_REGEX = re.compile(
+    r"\b(?:у\s+меня|у\s+нас|мо[ейя]\s+групп[ыае]?|только\s+мо[ейя]|для\s+меня)\b",
+    re.IGNORECASE
+)
 COURSE_REGEX = re.compile(r"\b([1-5])\s*(?:-?(?:ый|ой|ий|й|ем|ом|е|у))?\s*курс[а-я]*\b", re.IGNORECASE)
 FREE_ROOMS_KEYWORDS = re.compile(r"\b(свободн[а-я]*|пуст[а-я]*|где\s+посидеть|где\s+сесть|где\s+свободно)\b", re.IGNORECASE)
 
@@ -102,32 +110,53 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
                 room_display = f"Аудитория {room_num}"
                 working_text = working_text[:room_match.start()] + " " + working_text[room_match.end():]
 
-    # 3. Поиск группы (1-41, 2-42)
+    # 3. Поиск группы (1-41)
     target_group = None
     group_match = GROUP_REGEX.search(working_text)
+    standalone_match = STANDALONE_GROUP_REGEX.search(working_text)
+
     if group_match:
         course = int(group_match.group(1))
         group_num = group_match.group(2).strip()
         target_group = {"course": course, "group_number": group_num}
         working_text = working_text[:group_match.start()] + " " + working_text[group_match.end():]
+    elif standalone_match:
+        num = standalone_match.group(1) or standalone_match.group(2)
+        target_group = {"course": None, "group_number": num.strip()}
+        working_text = working_text[:standalone_match.start()] + " " + working_text[standalone_match.end():]
+    else:
+        # Ловим просто двузначный номер:
+        two_digit_match = re.search(r"\b([1-9][0-9])\b", working_text)
+        if two_digit_match:
+            num = two_digit_match.group(1).strip()
+            target_group = {"course": None, "group_number": num}
+            working_text = working_text[:two_digit_match.start()] + " " + working_text[two_digit_match.end():]
 
-    # 4. Поиск курса (2 курс)
+    # 4. Поиск курса
     target_course = None
     course_match = COURSE_REGEX.search(working_text)
     if course_match:
         target_course = int(course_match.group(1))
         working_text = working_text[:course_match.start()] + " " + course_match[course_match.end():]
 
-    # 5. Поиск предмета (дисциплины)
+    is_next_week = any(w in working_text for w in ["след", "следующ", "будущ", "next"])
+    only_my_group = bool(ONLY_MY_GROUP_REGEX.search(text))
+
+    # 5. Поиск предмета
     subj_match = extract_subject_from_query(text)
     if subj_match and not room_query and not FREE_ROOMS_KEYWORDS.search(text):
         canon_name, stems, raw_word = subj_match
+
+        target_subj_date = today + timedelta(days=7) if is_next_week else today
+
         return {
             "type": "subject",
             "canon_subject": canon_name,
             "schedule_stems": stems,
             "raw_subject_word": raw_word,
-            "date": today,
+            "date": target_subj_date,
+            "is_next_week": is_next_week,
+            "only_my_group": only_my_group,
             "target_group": target_group,
             "target_course": target_course or (target_group["course"] if target_group else None),
         }

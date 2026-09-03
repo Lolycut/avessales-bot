@@ -193,10 +193,10 @@ def build_native_rich_schedule(
 
     for item in display_items:
         slot = TIMESLOTS.get(item["slot_id"], {"order": str(item["slot_id"]), "time": "--:--"})
-        start_time = slot["time"].split(" - ")[0]
+        time_interval = slot["time"].replace(" - ", "–")
 
         rows.append([
-            RichBlockTableCell(text=f"{slot['order']} ({start_time})", align="center", valign="middle"),
+            RichBlockTableCell(text=f"{slot['order']} ({time_interval})", align="center", valign="middle"),
             RichBlockTableCell(text=RichTextBold(text=item["room"]), align="center", valign="middle"),
             RichBlockTableCell(text=item["subject"], align="left", valign="middle"),
             RichBlockTableCell(text=RichTextItalic(text=item["teacher"]), align="left", valign="middle"),
@@ -263,15 +263,16 @@ def format_full_week_rich_message(
 
         for item in display_items:
             slot = TIMESLOTS.get(item["slot_id"], {"order": str(item["slot_id"]), "time": "--:--"})
-            start_time = slot["time"].split(" - ")[0]
+            time_interval = slot["time"].replace(" - ", "–")
 
             rows.append([
-                RichBlockTableCell(text=f"{slot['order']} ({start_time})", align="center", valign="middle"),
+                RichBlockTableCell(text=f"{slot['order']} ({time_interval})", align="center", valign="middle"),
                 RichBlockTableCell(text=RichTextBold(text=item["room"]), align="center", valign="middle"),
                 RichBlockTableCell(text=item["subject"], align="left", valign="middle"),
                 RichBlockTableCell(text=RichTextItalic(text=item["teacher"]), align="left", valign="middle"),
             ])
 
+        
         blocks.append(
             InputRichBlockTable(
                 cells=rows,
@@ -345,7 +346,7 @@ def format_teacher_rich_schedule(
 
         for l in day_lessons:
             slot = TIMESLOTS.get(l.slot_id, {"order": str(l.slot_id), "time": "--:--"})
-            start_time = slot["time"].split(" - ")[0]
+            time_interval = slot["time"].replace(" - ", "–")
 
             room_str = l.room or "—"
             if l.address and "курчатова" not in l.address.lower():
@@ -355,7 +356,7 @@ def format_teacher_rich_schedule(
             type_str = f" [{l.lesson_type}]" if l.lesson_type else ""
 
             rows.append([
-                RichBlockTableCell(text=f"{slot['order']} ({start_time})", align="center", valign="middle"),
+                RichBlockTableCell(text=f"{slot['order']} ({time_interval})", align="center", valign="middle"),
                 RichBlockTableCell(text=RichTextBold(text=room_str), align="center", valign="middle"),
                 RichBlockTableCell(text=l.groups_display, align="center", valign="middle"),
                 RichBlockTableCell(text=f"{l.subject}{type_str}{sub_tag}", align="left", valign="middle"),
@@ -437,7 +438,7 @@ def format_subject_rich_schedule(
 
         for l in day_lessons:
             slot = TIMESLOTS.get(l.slot_id, {"order": str(l.slot_id), "time": "--:--"})
-            start_time = slot["time"].split(" - ")[0]
+            time_interval = slot["time"].replace(" - ", "–")
 
             room_str = l.room or "—"
             if l.address and "курчатова" not in l.address.lower():
@@ -448,7 +449,7 @@ def format_subject_rich_schedule(
             teacher_str = short_name(l.teacher)
 
             rows.append([
-                RichBlockTableCell(text=f"{slot['order']} ({start_time})", align="center", valign="middle"),
+                RichBlockTableCell(text=f"{slot['order']} ({time_interval})", align="center", valign="middle"),
                 RichBlockTableCell(text=RichTextBold(text=room_str), align="center", valign="middle"),
                 RichBlockTableCell(text=l.groups_display, align="center", valign="middle"),
                 RichBlockTableCell(text=f"{teacher_str}{type_str}{sub_tag}", align="left", valign="middle"),

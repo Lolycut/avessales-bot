@@ -593,5 +593,23 @@ class ScheduleCache:
 
         return dict(sorted(specs.items(), key=lambda x: x[0]))
 
+    def get_teacher_index(self, teacher_name: str) -> int:
+        try:
+            return self._teachers_list.index(teacher_name)
+        except ValueError:
+            return -1
+
+    def get_teacher_by_index(self, idx: int) -> str | None:
+        if 0 <= idx < len(self._teachers_list):
+            return self._teachers_list[idx]
+        return None
+
+    def find_group_by_number_any_course(self, number: str | int) -> GroupDTO | None:
+        clean_num = str(number).strip()
+        for (course, num), group in self._groups_by_course_num.items():
+            if num == clean_num or clean_num.endswith(f"-{num}") or num.endswith(f"-{clean_num}"):
+                return group
+        return None
+
 
 schedule_cache = ScheduleCache()

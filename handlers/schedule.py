@@ -26,7 +26,13 @@ from services.formatter import (
     DAYS_NAMES
 )
 from services.query_parser import parse_schedule_query
-from keyboards import week_nav_kb, spec_view_toggle_kb
+from services.subject_dict import get_subject_id, get_subject_by_id, SUBJECT_REGISTRY
+from keyboards import (
+    week_nav_kb, 
+    spec_view_toggle_kb, 
+    teacher_week_nav_kb, 
+    subject_week_nav_kb
+)
 from config import get_minsk_now
 
 router = Router()
@@ -109,6 +115,8 @@ async def cmd_list_teachers(message: Message):
     text += "\n💡 <i>Чтобы посмотреть расписание преподавателя, напишите его фамилию (например: <b>Кукулянская</b> или <b>пары Гричика</b>)</i>"
     await message.answer(text)
 
+
+# ==================== НАВИГАЦИЯ ПО НЕДЕЛЯМ ==================== (и не похуй было мне это делать же, зато красиво)
 
 @router.callback_query(F.data.startswith("week_date_"))
 async def callback_switch_week_by_date(callback: CallbackQuery, bot: Bot):
@@ -313,6 +321,186 @@ async def callback_show_week_specializations(callback: CallbackQuery, bot: Bot):
     await bot.send_rich_message(chat_id=callback.message.chat.id, rich_message=rich_msg, reply_markup=kb)
 
 
+# Листалка недель преподавателя
+@router.callback_query(F.data.startswith("th_date_"))
+async def callback_teacher_week_nav(callback: CallbackQuery, bot: Bot):
+    try:
+        await callback.answer()
+    except TelegramBadRequest:
+        pass
+
+    parts = callback.data.split("_")
+    date_str = parts[2]
+    teacher_idx = int(parts[3])
+
+    try:
+        target_monday = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return
+
+    teacher_name = schedule_cache.get_teacher_by_index(teacher_idx)
+    if not teacher_name:
+        return
+
+    teacher_match = schedule_cache.find_teacher_schedule(teacher_name, target_monday)
+    if not teacher_match:
+        await callback.answer("🌴 На этой неделе пар у преподавателя нет!", show_alert=True)
+        return
+
+    full_name, monday, lessons_data = teacher_match
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    rich_msg = format_teacher_rich_schedule(
+        teacher_full_name=full_name,
+        start_monday=monday,
+        lessons_data=lessons_data
+    )
+    kb = teacher_week_nav_kb(monday, teacher_idx)
+    await bot.send_rich_message(chat_id=callback.message.chat.id, rich_message=rich_msg, reply_markup=kb)
+
+
+# Листалка недель предмета
+@router.callback_query(F.data.startswith("sb_date_"))
+async def callback_subject_week_nav(callback: CallbackQuery, bot: Bot):
+    try:
+        await callback.answer()
+    except TelegramBadRequest:
+        pass
+
+    parts = callback.data.split("_")
+    date_str = parts[2]
+    q_course = int(parts[3]) if parts[3] != "0" else None
+    q_group_num = parts[4] if parts[4] != "0" else None
+    subj_id = int(parts[5])
+
+    try:
+        target_monday = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return
+
+    canon_subject = get_subject_by_id(subj_id)
+    if not canon_subject:
+        return
+
+    subject_match = schedule_cache.find_subject_schedule(
+        target_date=target_monday,
+        canon_subject=canon_subject,
+        schedule_stems=SUBJECT_REGISTRY.get(canon_subject, {}).get("schedule_stems"),
+        query_course=q_course,
+        query_group_num=q_group_num
+    )
+
+    if not subject_match:
+        await callback.answer(f"🌴 На неделе с {target_monday.strftime('%d.%m')} пар по этому предмету нет!", show_alert=True)
+        return
+
+    subject_title, actual_monday, subject_slots, filter_badge = subject_match
+
+    async with async_session_maker() as session:
+        user = await session.get(User, callback.from_user.id)
+        user_group = schedule_cache.get_group_by_id(user.group_id) if (user and user.group_id) else None
+
+    is_filtered = bool(q_group_num and user_group and str(user_group.number).strip() == str(q_group_num).strip())
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    rich_msg = format_subject_rich_schedule(
+        subject_title=subject_title,
+        start_monday=actual_monday,
+        lessons_data=subject_slots,
+        filter_badge=filter_badge
+    )
+    kb = subject_week_nav_kb(
+        current_monday=actual_monday,
+        subj_id=subj_id,
+        course=q_course,
+        group_num=q_group_num,
+        has_user_group=bool(user_group),
+        is_my_group_filtered=is_filtered
+    )
+    await bot.send_rich_message(chat_id=callback.message.chat.id, rich_message=rich_msg, reply_markup=kb)
+
+
+# Переключение "Только моя группа" <-> "Все группы курса"
+@router.callback_query(F.data.startswith("sb_tog_"))
+async def callback_subject_toggle_group(callback: CallbackQuery, bot: Bot):
+    try:
+        await callback.answer()
+    except TelegramBadRequest:
+        pass
+
+    parts = callback.data.split("_")
+    date_str = parts[2]
+    q_course = int(parts[3]) if parts[3] != "0" else None
+    mode = parts[4]  # "my" или "all"
+    subj_id = int(parts[5])
+
+    try:
+        target_monday = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return
+
+    canon_subject = get_subject_by_id(subj_id)
+    if not canon_subject:
+        return
+
+    async with async_session_maker() as session:
+        user = await session.get(User, callback.from_user.id)
+        user_group = schedule_cache.get_group_by_id(user.group_id) if (user and user.group_id) else None
+
+    if mode == "my" and user_group:
+        target_group_num = user_group.number
+        target_course = user_group.course
+    else:
+        target_group_num = None
+        target_course = q_course or (user_group.course if user_group else None)
+
+    subject_match = schedule_cache.find_subject_schedule(
+        target_date=target_monday,
+        canon_subject=canon_subject,
+        schedule_stems=SUBJECT_REGISTRY.get(canon_subject, {}).get("schedule_stems"),
+        query_course=target_course,
+        query_group_num=target_group_num
+    )
+
+    if not subject_match:
+        filter_label = f"для группы {target_group_num}" if target_group_num else "на курсе"
+        await callback.answer(f"🌴 Пар {filter_label} на этой неделе не найдено!", show_alert=True)
+        return
+
+    subject_title, actual_monday, subject_slots, filter_badge = subject_match
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    rich_msg = format_subject_rich_schedule(
+        subject_title=subject_title,
+        start_monday=actual_monday,
+        lessons_data=subject_slots,
+        filter_badge=filter_badge
+    )
+    kb = subject_week_nav_kb(
+        current_monday=actual_monday,
+        subj_id=subj_id,
+        course=target_course,
+        group_num=target_group_num,
+        has_user_group=bool(user_group),
+        is_my_group_filtered=(mode == "my")
+    )
+    await bot.send_rich_message(chat_id=callback.message.chat.id, rich_message=rich_msg, reply_markup=kb)
+
+
+# ==================== ОСНОВНОЙ ТЕКСТОВЫЙ ОБРАБОТЧИК ====================
+
 @router.message(F.text)
 async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot):
     raw_text = (message.text or "").strip()
@@ -322,7 +510,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
     is_group_chat = message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
     query_text = raw_text
 
-    # 1. В беседах бот реагирует ТОЛЬКО на обращение "Бот ..." (Игнорирует блеблебле, это важно)
+    # 1. В беседах бот реагирует ТОЛЬКО на обращение "Бот ..."
     if is_group_chat:
         match_bot = re.match(r"^бот\b(?:[\s,!:—–-]+(.*)|$)", raw_text, re.IGNORECASE)
         if not match_bot:
@@ -356,12 +544,14 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
     teacher_match = schedule_cache.find_teacher_schedule(query_text, now_date)
     if teacher_match:
         teacher_name, monday, lessons_data = teacher_match
+        teacher_idx = schedule_cache.get_teacher_index(teacher_name)
         rich_msg = format_teacher_rich_schedule(
             teacher_full_name=teacher_name,
             start_monday=monday,
             lessons_data=lessons_data
         )
-        await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg)
+        kb = teacher_week_nav_kb(monday, teacher_idx) if teacher_idx != -1 else None
+        await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg, reply_markup=kb)
         return
 
     # 3. Парсинг запроса
@@ -371,7 +561,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
 
     await state.clear()
 
-    # 3.1. Запрос свободных аудиторий (НЕ требует привязки к группе)
+    # 3.1. Запрос свободных аудиторий
     if parsed["type"] == "free_rooms":
         if parsed["day_index"] == 6:
             await message.answer("🎉 <b>В воскресенье занятий нет!</b> Все аудитории факультета отдыхают ✨")
@@ -451,9 +641,14 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
     if parsed.get("target_group"):
         t_course = parsed["target_group"]["course"]
         t_num = parsed["target_group"]["group_number"]
-        group = schedule_cache.find_group_by_course_and_number(t_course, t_num)
+        if t_course:
+            group = schedule_cache.find_group_by_course_and_number(t_course, t_num)
+        else:
+            group = schedule_cache.find_group_by_number_any_course(t_num)
+
         if not group:
-            await message.answer(f"⚠️ Группа <b>{t_num}</b> ({t_course} курс) не найдена в базе!")
+            course_info = f" ({t_course} курс)" if t_course else ""
+            await message.answer(f"⚠️ Группа <b>{t_num}</b>{course_info} не найдена в базе!")
             return
         target_subgroup = 0
         user_name = message.chat.title if is_group_chat else "Студент"
@@ -488,8 +683,18 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         q_course = parsed.get("target_course")
         q_group_num = target_group_dict.get("group_number") if target_group_dict else None
 
-        if not q_course and group:
+        # Если запросили "у меня", "у нас", "моей группы" — фильтруем строго по группе пользователя
+        if parsed.get("only_my_group") and group:
             q_course = group.course
+            q_group_num = group.number
+        elif not q_course and group:
+            q_course = group.course
+
+        # Если номер группы был введён без курса (например "50" или "50 группа"), находим группу в кэше
+        if q_group_num and not q_course:
+            found_g = schedule_cache.find_group_by_number_any_course(q_group_num)
+            if found_g:
+                q_course = found_g.course
 
         subject_match = schedule_cache.find_subject_schedule(
             target_date=parsed["date"],
@@ -502,10 +707,23 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
 
         if not subject_match:
             filter_text = f" для группы <b>{q_group_num}</b>" if q_group_num else (f" на <b>{q_course} курсе</b>" if q_course else "")
-            await message.answer(f"🌴 На этой неделе пар по предмету «<b>{parsed['canon_subject']}</b>»{filter_text} не найдено!")
+            week_text = "на следующей неделе" if parsed.get("is_next_week") else "на этой неделе"
+            await message.answer(f"🌴 {week_text.capitalize()} пар по предмету «<b>{parsed['canon_subject']}</b>»{filter_text} не найдено!")
             return
 
         subject_title, actual_monday, subject_slots, filter_badge = subject_match
+
+        subj_id = get_subject_id(parsed["canon_subject"])
+        is_my_group_filtered = bool(q_group_num and group and str(group.number).strip() == str(q_group_num).strip())
+        
+        kb = subject_week_nav_kb(
+            current_monday=actual_monday,
+            subj_id=subj_id,
+            course=q_course,
+            group_num=q_group_num,
+            has_user_group=bool(group),
+            is_my_group_filtered=is_my_group_filtered
+        ) if subj_id != -1 else None
 
         rich_msg = format_subject_rich_schedule(
             subject_title=subject_title,
@@ -513,7 +731,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
             lessons_data=subject_slots,
             filter_badge=filter_badge
         )
-        await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg)
+        await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg, reply_markup=kb)
         return
 
     # 6. Расписание на неделю
@@ -555,8 +773,22 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
             await message.answer(f"🌴 <b>{day_name} ({formatted_date})</b> | {group_display_title}\nУ вас {status}!")
             return
             
-        prefix = f"⚡ <b>Пара ({group_display_title}):</b>\n" if parsed["type"] == "current" else ""
-        header = f"{prefix}📍 <b>{day_name} ({formatted_date})</b> | {slot_info['order']} пара\n👥 <b>{group_display_title}</b>\n⏰ <b>{slot_info['time']}</b>\n"
+        # Расчет времени до конца пары
+        time_left_str = ""
+        if parsed["type"] == "current":
+            now = get_minsk_now()
+            cur_minutes = now.hour * 60 + now.minute
+            end_h, end_m = map(int, slot_info["time"].split(" - ")[1].split(":"))
+            mins_left = (end_h * 60 + end_m) - cur_minutes
+            if mins_left > 0:
+                time_left_str = f" ⏳ <i>(до конца: {mins_left} мин)</i>"
+
+        prefix = f"⚡ <b>Пара прямо сейчас ({group_display_title}):</b>\n" if parsed["type"] == "current" else ""
+        header = (
+            f"{prefix}📍 <b>{day_name} ({formatted_date})</b> | {slot_info['order']} пара\n"
+            f"👥 <b>{group_display_title}</b>\n"
+            f"⏰ <b>{slot_info['time']}</b>{time_left_str}\n"
+        )
 
         if len(matched) == 1:
             l = matched[0]

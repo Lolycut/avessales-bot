@@ -237,3 +237,67 @@ def group_chat_groups_kb(chat_id: int, groups: list[GroupDTO]) -> InlineKeyboard
     ]
     buttons.append([InlineKeyboardButton(text="⬅️ Выбрать другой курс", callback_data=f"g_pick_crs_{chat_id}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+# 6. Навигация по неделям для преподавателей
+def teacher_week_nav_kb(current_monday: date, teacher_idx: int) -> InlineKeyboardMarkup:
+    prev_monday = current_monday - timedelta(days=7)
+    next_monday = current_monday + timedelta(days=7)
+
+    prev_date_str = prev_monday.strftime("%Y-%m-%d")
+    next_date_str = next_monday.strftime("%Y-%m-%d")
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="◀️ Пред. неделя", callback_data=f"th_date_{prev_date_str}_{teacher_idx}"),
+                InlineKeyboardButton(text="След. неделя ▶️", callback_data=f"th_date_{next_date_str}_{teacher_idx}"),
+            ]
+        ]
+    )
+
+
+# 7. Навигация по неделям для предметов + переключение групп
+def subject_week_nav_kb(
+    current_monday: date,
+    subj_id: int,
+    course: int | None = None,
+    group_num: str | None = None,
+    has_user_group: bool = False,
+    is_my_group_filtered: bool = False,
+) -> InlineKeyboardMarkup:
+    prev_monday = current_monday - timedelta(days=7)
+    next_monday = current_monday + timedelta(days=7)
+
+    prev_date_str = prev_monday.strftime("%Y-%m-%d")
+    next_date_str = next_monday.strftime("%Y-%m-%d")
+    curr_date_str = current_monday.strftime("%Y-%m-%d")
+
+    c_val = course if course is not None else 0
+    g_val = group_num if group_num is not None else "0"
+
+    buttons = [
+        [
+            InlineKeyboardButton(text="◀️ Пред. неделя", callback_data=f"sb_date_{prev_date_str}_{c_val}_{g_val}_{subj_id}"),
+            InlineKeyboardButton(text="След. неделя ▶️", callback_data=f"sb_date_{next_date_str}_{c_val}_{g_val}_{subj_id}"),
+        ]
+    ]
+
+    # Кнопка переключения "Только моя группа / Все группы"
+    if has_user_group:
+        if is_my_group_filtered:
+            buttons.append([
+                InlineKeyboardButton(
+                    text="🌐 Показать все группы курса",
+                    callback_data=f"sb_tog_{curr_date_str}_{c_val}_all_{subj_id}"
+                )
+            ])
+        else:
+            buttons.append([
+                InlineKeyboardButton(
+                    text="🎯 Только для моей группы",
+                    callback_data=f"sb_tog_{curr_date_str}_{c_val}_my_{subj_id}"
+                )
+            ])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)

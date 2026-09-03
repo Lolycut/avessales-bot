@@ -37,12 +37,19 @@ SUBJECT_REGISTRY: dict[str, dict[str, list[str]]] = {
         "user_aliases": ["биохим", "биохимия", "биохимии", "спортбиохим"],
         "schedule_stems": ["биохим"]
     },
+    "Основы клеточной биологии": {
+        "user_aliases": [
+            "окб", "кб", "основы клеточной биологии", "клеточная биология", 
+            "клеточная", "клетка", "биология клетки"
+        ],
+        "schedule_stems": ["клеточн", "окб", "биология клетки", "основы клеточн"]
+    },
     "Микробиология": {
         "user_aliases": [
             "микра", "микроба", "микробиология", "микробиолог", "микробы", 
-            "вирусология", "экологическая микробиология"
+            "вирусология", "экологическая микробиология", "микробиологи"
         ],
-        "schedule_stems": ["микробиолог", "вирусолог"]
+        "schedule_stems": ["микробиолог", "микробиол", "вирусолог", "микра"]
     },
     "Современная политэкономия": {
         "user_aliases": ["политэконом", "политэкономия", "политэк", "экономика", "полит"],
@@ -149,6 +156,22 @@ def extract_subject_from_query(text: str) -> tuple[str, list[str], str] | None:
         if raw_word not in STOP_WORDS_FOR_SUBJECTS:
             return raw_word.capitalize(), [raw_word[:4]], raw_word
 
+    return None
+
+
+SUBJECT_KEYS = list(SUBJECT_REGISTRY.keys())
+
+
+def get_subject_id(canon_name: str) -> int:
+    try:
+        return SUBJECT_KEYS.index(canon_name)
+    except ValueError:
+        return -1
+
+
+def get_subject_by_id(subj_id: int) -> str | None:
+    if 0 <= subj_id < len(SUBJECT_KEYS):
+        return SUBJECT_KEYS[subj_id]
     return None
 
 # Работай
