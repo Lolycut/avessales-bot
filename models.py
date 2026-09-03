@@ -37,9 +37,12 @@ class User(Base):
     group_id: Mapped[int | None] = mapped_column(
         ForeignKey("groups.id", ondelete="SET NULL"), default=None, index=True
     )
+    
     subgroup: Mapped[int | None] = mapped_column(SmallInteger, default=None)
-    notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)  # Утренний дайджест (07:45)
-    change_notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)  # Оповещения об изменениях
+    specialization: Mapped[int | None] = mapped_column(SmallInteger, default=None)
+
+    notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    change_notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     registered_at: Mapped[datetime] = mapped_column(
         default=get_minsk_now, server_default=func.now()
     )

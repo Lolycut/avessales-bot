@@ -1,51 +1,100 @@
 from datetime import date, timedelta
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
 from services.dto import GroupDTO
 
 
+# 1. Главное меню
 def main_menu_kb(notifications: bool = True) -> ReplyKeyboardMarkup:
     notif_btn = "🔔 Уведы: ВКЛ" if notifications else "🔕 Уведы: ВЫКЛ"
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="📅 Сегодня"), KeyboardButton(text="📆 Завтра")],
             [KeyboardButton(text="⚡ Какая пара сейчас?"), KeyboardButton(text="🗓 На неделю")],
-            [KeyboardButton(text=notif_btn), KeyboardButton(text="⚙️ Настройки")]
+            [KeyboardButton(text=notif_btn), KeyboardButton(text="⚙️ Настройки")],
         ],
-        resize_keyboard=True
+        resize_keyboard=True,
     )
 
 
-def settings_inline_kb(morning_enabled: bool, changes_enabled: bool) -> InlineKeyboardMarkup:
+
+# 2. Настройки пользователя
+def settings_inline_kb(
+    morning_enabled: bool,
+    changes_enabled: bool,
+    has_specs: bool = False,
+    spec_title: str | None = None,
+) -> InlineKeyboardMarkup:
     morning_btn = "🌅 Утро 07:45: ВКЛ 🟢" if morning_enabled else "🌅 Утро 07:45: ВЫКЛ 🔴"
     changes_btn = "⚡ Изменения пар: ВКЛ 🟢" if changes_enabled else "⚡ Изменения пар: ВЫКЛ 🔴"
 
+    keyboard = [
+        [InlineKeyboardButton(text=morning_btn, callback_data="toggle_user_morning_notif")],
+        [InlineKeyboardButton(text=changes_btn, callback_data="toggle_user_changes_notif")],
+        [InlineKeyboardButton(text="👥 Сменить подгруппу", callback_data="change_subgroup")],
+    ]
+
+    if has_specs:
+        spec_text = spec_title if spec_title else "Вся группа"
+        keyboard.append([
+            InlineKeyboardButton(text=f"🧬 Профилизация: {spec_text}", callback_data="change_spec")
+        ])
+
+    keyboard.extend([
+        [InlineKeyboardButton(text="✏️ Изменить никнейм", callback_data="change_nickname")],
+        [InlineKeyboardButton(text="🔄 Сменить группу (перерегистрация)", callback_data="restart_reg")],
+        [InlineKeyboardButton(text="ℹ️ Справка и FAQ", callback_data="show_faq")],
+        [InlineKeyboardButton(text="📜 Соглашение и конфиденциальность", callback_data="show_terms")],
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def settings_subgroups_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=morning_btn, callback_data="toggle_user_morning_notif")],
-            [InlineKeyboardButton(text=changes_btn, callback_data="toggle_user_changes_notif")],
-            [InlineKeyboardButton(text="👥 Сменить подгруппу", callback_data="change_subgroup")],
-            [InlineKeyboardButton(text="✏️ Изменить никнейм", callback_data="change_nickname")],
-            [InlineKeyboardButton(text="🔄 Сменить группу (перерегистрация)", callback_data="restart_reg")],
-            [InlineKeyboardButton(text="ℹ️ Справка и FAQ", callback_data="show_faq")],
-            [InlineKeyboardButton(text="📜 Соглашение и конфиденциальность", callback_data="show_terms")]
+            [
+                InlineKeyboardButton(text="1-я подгруппа", callback_data="set_subgroup_1"),
+                InlineKeyboardButton(text="2-я подгруппа", callback_data="set_subgroup_2"),
+            ],
+            [InlineKeyboardButton(text="Вся группа (без деления)", callback_data="set_subgroup_0")],
         ]
     )
 
 
+def settings_specializations_kb(specs: dict[int, str]) -> InlineKeyboardMarkup:
+    buttons = []
+    for order, name in specs.items():
+        short_title = name[:30] + "..." if len(name) > 30 else name
+        buttons.append([
+            InlineKeyboardButton(text=f"#{order} {short_title}", callback_data=f"set_spec_{order}")
+        ])
+    
+    buttons.append([
+        InlineKeyboardButton(text="🌐 Вся группа (все кафедры)", callback_data="set_spec_0")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+# 3. Регистрация (Шаги FSM)
 def courses_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="1️⃣ курс", callback_data="sel_course_1"),
-                InlineKeyboardButton(text="2️⃣ курс", callback_data="sel_course_2")
+                InlineKeyboardButton(text="2️⃣ курс", callback_data="sel_course_2"),
             ],
             [
                 InlineKeyboardButton(text="3️⃣ курс", callback_data="sel_course_3"),
-                InlineKeyboardButton(text="4️⃣ курс", callback_data="sel_course_4")
+                InlineKeyboardButton(text="4️⃣ курс", callback_data="sel_course_4"),
             ],
             [
-                InlineKeyboardButton(text="5️⃣ курс", callback_data="sel_course_5")
-            ]
+                InlineKeyboardButton(text="5️⃣ курс", callback_data="sel_course_5"),
+            ],
         ]
     )
 
@@ -55,31 +104,34 @@ def reg_subgroups_kb() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="1-я подгруппа", callback_data="reg_subgroup_1"),
-                InlineKeyboardButton(text="2-я подгруппа", callback_data="reg_subgroup_2")
+                InlineKeyboardButton(text="2-я подгруппа", callback_data="reg_subgroup_2"),
             ],
-            [InlineKeyboardButton(text="Вся группа (без деления)", callback_data="reg_subgroup_0")]
+            [InlineKeyboardButton(text="Вся группа (без деления)", callback_data="reg_subgroup_0")],
         ]
     )
 
 
-def settings_subgroups_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="1-я подгруппа", callback_data="set_subgroup_1"),
-                InlineKeyboardButton(text="2-я подгруппа", callback_data="set_subgroup_2")
-            ],
-            [InlineKeyboardButton(text="Вся группа (без деления)", callback_data="set_subgroup_0")]
-        ]
-    )
+def reg_specializations_kb(specs: dict[int, str]) -> InlineKeyboardMarkup:
+    buttons = []
+    for order, name in specs.items():
+        short_title = name[:30] + "..." if len(name) > 30 else name
+        buttons.append([
+            InlineKeyboardButton(text=f"#{order} {short_title}", callback_data=f"reg_spec_{order}")
+        ])
+    
+    buttons.append([
+        InlineKeyboardButton(text="🌐 Вся группа (все кафедры)", callback_data="reg_spec_0")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+# 4. Навигация по неделе и профилизациям
 def week_nav_kb(
-    current_monday: date, 
-    group_id: int | None = None, 
+    current_monday: date,
+    group_id: int | None = None,
     subgroup: int | None = None,
     has_offcampus: bool = False,
-    has_specializations: bool = False
+    has_specializations: bool = False,
 ) -> InlineKeyboardMarkup:
     prev_monday = current_monday - timedelta(days=7)
     next_monday = current_monday + timedelta(days=7)
@@ -104,17 +156,17 @@ def week_nav_kb(
     buttons = [
         [
             InlineKeyboardButton(text="◀️ Пред. неделя", callback_data=prev_cb),
-            InlineKeyboardButton(text="След. неделя ▶️", callback_data=next_cb)
+            InlineKeyboardButton(text="След. неделя ▶️", callback_data=next_cb),
         ]
     ]
 
-    # Кнопка профилизаций (если они есть на этой неделе)
+    # Кнопка профилизаций
     if has_specializations:
         buttons.append([
             InlineKeyboardButton(text="🧬 Профилизации (Спецкурсы)", callback_data=spec_cb)
         ])
 
-    # Кнопка выездных пар (если они есть на этой неделе)
+    # Кнопка выездных пар
     if has_offcampus:
         buttons.append([
             InlineKeyboardButton(text="🚗 Куда ехать? (Выезды ⚠️)", callback_data=loc_cb)
@@ -122,15 +174,27 @@ def week_nav_kb(
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# ==========================================
-# Клавиатуры для беседы (группового чата)
-# ==========================================
 
+def spec_view_toggle_kb(date_str: str, group_id: int, current_is_all: bool) -> InlineKeyboardMarkup:
+    if current_is_all:
+        btn_text = "🎯 Показать только мою кафедру"
+        cb_data = f"week_spec_{date_str}_{group_id}_my"
+    else:
+        btn_text = "👁 Показать все кафедры группы"
+        cb_data = f"week_spec_{date_str}_{group_id}_all"
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=btn_text, callback_data=cb_data)]]
+    )
+
+
+
+# 5. Управление беседой (Групповой чат)
 def group_chat_settings_kb(
-    chat_id: int, 
-    is_active: bool, 
+    chat_id: int,
+    is_active: bool,
     notifications_enabled: bool,
-    change_notifications_enabled: bool = True
+    change_notifications_enabled: bool = True,
 ) -> InlineKeyboardMarkup:
     active_text = "💬 Ответы на «Бот»: ВКЛ 🟢" if is_active else "💬 Ответы на «Бот»: ВЫКЛ 🔴"
     notif_text = "🌅 Утро 07:45: ВКЛ 🟢" if notifications_enabled else "🌅 Утро 07:45: ВЫКЛ 🔴"
@@ -142,7 +206,7 @@ def group_chat_settings_kb(
             [InlineKeyboardButton(text=notif_text, callback_data=f"g_toggle_not_{chat_id}")],
             [InlineKeyboardButton(text=change_text, callback_data=f"g_toggle_chg_{chat_id}")],
             [InlineKeyboardButton(text="🎓 Установить группу беседы", callback_data=f"g_pick_crs_{chat_id}")],
-            [InlineKeyboardButton(text="❌ Закрыть меню", callback_data=f"g_close_{chat_id}")]
+            [InlineKeyboardButton(text="❌ Закрыть меню", callback_data=f"g_close_{chat_id}")],
         ]
     )
 
@@ -152,16 +216,16 @@ def group_chat_courses_kb(chat_id: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="1️⃣ курс", callback_data=f"g_crs_{chat_id}_1"),
-                InlineKeyboardButton(text="2️⃣ курс", callback_data=f"g_crs_{chat_id}_2")
+                InlineKeyboardButton(text="2️⃣ курс", callback_data=f"g_crs_{chat_id}_2"),
             ],
             [
                 InlineKeyboardButton(text="3️⃣ курс", callback_data=f"g_crs_{chat_id}_3"),
-                InlineKeyboardButton(text="4️⃣ курс", callback_data=f"g_crs_{chat_id}_4")
+                InlineKeyboardButton(text="4️⃣ курс", callback_data=f"g_crs_{chat_id}_4"),
             ],
             [
-                InlineKeyboardButton(text="5️⃣ курс", callback_data=f"g_crs_{chat_id}_5")
+                InlineKeyboardButton(text="5️⃣ курс", callback_data=f"g_crs_{chat_id}_5"),
             ],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"g_back_{chat_id}")]
+            [   InlineKeyboardButton(text="⬅️ Назад", callback_data=f"g_back_{chat_id}")],
         ]
     )
 

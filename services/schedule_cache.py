@@ -303,22 +303,21 @@ class ScheduleCache:
         self,
         target_date: date,
         canon_subject: str,
-        raw_word: str,
+        schedule_stems: list[str] | None = None,
+        raw_word: str = "",
         query_course: int | None = None,
         query_group_num: str | None = None,
     ) -> tuple[str, date, list[SubjectSlotDTO], str | None] | None:
-        aliases = SUBJECT_ALIASES.get(canon_subject, [canon_subject, raw_word])
-        aliases_lower = [a.lower() for a in aliases] + [canon_subject.lower(), raw_word.lower()]
+        stems = [s.lower() for s in (schedule_stems or [canon_subject, raw_word]) if len(s) >= 3]
 
         def is_match(subj: str) -> bool:
             subj_l = subj.lower()
-            return any(a in subj_l for a in aliases_lower)
+            return any(stem in subj_l for stem in stems)
 
         monday = target_date - timedelta(days=target_date.weekday())
         all_courses = sorted(list(self._weeks_by_course.keys()))
-        courses_to_search = [query_course] if (query_course and query_course in self._weeks_by_course) else all_courses
 
-        def collect_records(courses: list[int]) -> tuple[date, list[tuple[LessonDTO, GroupDTO, WeekDTO]]]:
+        def collect_for_courses(courses: list[int]) -> tuple[date, list[tuple[LessonDTO, GroupDTO, WeekDTO]]]:
             matched: list[tuple[LessonDTO, GroupDTO, WeekDTO]] = []
             act_m = monday
             for c in courses:
@@ -330,8 +329,7 @@ class ScheduleCache:
                     continue
                 act_m = target_w.start_date
 
-                groups_in_course = self.get_all_groups_for_course(c)
-                for g in groups_in_course:
+                for g in self.get_all_groups_for_course(c):
                     if query_group_num and str(g.number).strip() != str(query_group_num).strip():
                         continue
 
@@ -341,20 +339,31 @@ class ScheduleCache:
                             matched.append((l, g, target_w))
             return act_m, matched
 
-        actual_monday, records = collect_records(courses_to_search)
-        if not records and courses_to_search != all_courses and not query_group_num:
-            actual_monday, records = collect_records(all_courses)
+        # 1. Сначала ищем по целевому курсу
+        if query_course and query_course in self._weeks_by_course:
+            actual_monday, records = collect_for_courses([query_course])
+        else:
+            actual_monday, records = collect_for_courses(all_courses)
+
+        # 2. Если на целевом курсе не найдено и группа не была жестко ограничена — ищем по остальным
+        if not records and query_course and not query_group_num:
+            actual_monday, records = collect_for_courses(all_courses)
 
         if not records:
             return None
 
+        # Красивое название: берём самое частотное оригинальное имя из базы
         subject_names = [r[0].subject for r in records]
-        display_title = Counter(subject_names).most_common(1)[0][0] if subject_names else canon_subject.capitalize()
+        display_title = Counter(subject_names).most_common(1)[0][0] if subject_names else canon_subject
 
+        # Честное (возможно) формирование плашки курса/группы на основе РЕАЛЬНО найденных данных
+        found_courses = sorted(list({r[1].course for r in records}))
         if query_group_num:
             badge = f"👥 Группа {query_course}-{query_group_num}" if query_course else f"👥 Группа {query_group_num}"
-        elif query_course:
-            badge = f"🎓 {query_course} курс"
+        elif len(found_courses) == 1:
+            badge = f"🎓 {found_courses[0]} курс"
+        elif len(found_courses) > 1:
+            badge = f"🎓 {', '.join(str(c) for c in found_courses)} курсы"
         else:
             badge = None
 
@@ -379,12 +388,12 @@ class ScheduleCache:
                 if g_tag not in grouped_slots[key].groups:
                     grouped_slots[key].groups.append(g_tag)
 
-        lessons_list: list[SubjectSlotDTO] = []
-        for item in grouped_slots.values():
+        lessons_list: list[SubjectSlotDTO] = list(grouped_slots.values())
+        for item in lessons_list:
             item.groups.sort()
             item.groups_display = ", ".join(item.groups)
-            lessons_list.append(item)
 
+        lessons_list.sort(key=lambda x: (x.day, x.slot_id))
         return display_title, actual_monday, lessons_list, badge
 
     # Поиск расписания конкретной аудитории / поточки
@@ -571,6 +580,18 @@ class ScheduleCache:
             "slots_summary": slots_summary,
             "all_day_free": all_day_free_classrooms
         }
+
+    def get_specializations_for_group(self, group_id: int, course: int) -> dict[int, str]:
+        specs: dict[int, str] = {}
+        weeks = self._weeks_by_course.get(course, [])
+        for w in weeks:
+            lessons = self._lessons_by_group_week.get((group_id, w.id), [])
+            for l in lessons:
+                if l.specialization_order is not None:
+                    subj = re.sub(r"\[.*?\]", "", l.subject).strip()
+                    specs[l.specialization_order] = subj
+
+        return dict(sorted(specs.items(), key=lambda x: x[0]))
 
 
 schedule_cache = ScheduleCache()

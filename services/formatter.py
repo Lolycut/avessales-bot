@@ -3,7 +3,13 @@ from datetime import date, timedelta
 from collections import defaultdict
 from typing import Any
 
-from services.dto import LessonDTO, RoomSlotDTO, TeacherSlotDTO, SubjectSlotDTO, ScheduleChangeDTO
+from services.dto import (
+    LessonDTO,
+    RoomSlotDTO,
+    TeacherSlotDTO,
+    SubjectSlotDTO,
+    ScheduleChangeDTO,
+)
 from aiogram.types import (
     InputRichMessage,
     InputRichBlockSectionHeading,
@@ -13,7 +19,6 @@ from aiogram.types import (
     RichBlockTableCell,
     RichTextBold,
     RichTextItalic,
-    RichTextMarked,
     RichTextStrikethrough,
 )
 
@@ -54,12 +59,12 @@ def short_name(full_name: str | None) -> str:
         r"^(?:(?:ст\.\s*)?преп\.?|доц\.?|проф\.?|ассист\.?|акад\.?)\s+",
         "",
         name,
-        flags=re.IGNORECASE
+        flags=re.IGNORECASE,
     ).strip()
 
     match_initials = re.match(
         r"^([А-ЯЁа-яёA-Za-z\-]+)\s+([А-ЯЁA-Z])\.?\s*([А-ЯЁA-Z])?\.?$",
-        name
+        name,
     )
     if match_initials:
         surname = match_initials.group(1).capitalize()
@@ -87,6 +92,66 @@ def short_name(full_name: str | None) -> str:
     return name
 
 
+def _collapse_day_lessons(lessons: list[LessonDTO], user_subgroup: int = 0) -> list[dict]:
+    filtered = [
+        l for l in lessons
+        if (l.subgroup is None or l.subgroup == user_subgroup or user_subgroup == 0)
+    ]
+
+    by_slot: dict[int, list[LessonDTO]] = defaultdict(list)
+    for l in filtered:
+        by_slot[l.slot_id].append(l)
+
+    result_rows = []
+    for slot_id in sorted(by_slot.keys()):
+        slot_lessons = by_slot[slot_id]
+
+        spec_lessons = [l for l in slot_lessons if l.specialization_order is not None]
+
+        if len(spec_lessons) > 1:
+            common_title = next(
+                (l.common_discipline for l in spec_lessons if l.common_discipline),
+                "Спецпрактикум (дисциплины профилизации)"
+            )
+            l_type = spec_lessons[0].lesson_type or "ЛР"
+            result_rows.append({
+                "slot_id": slot_id,
+                "room": "Кафедры",
+                "subject": f"{common_title} [{l_type}]",
+                "teacher": "См. кнопку 🧬",
+                "subgroup": None
+            })
+
+            for l in slot_lessons:
+                if l.specialization_order is None:
+                    result_rows.append({
+                        "slot_id": slot_id,
+                        "room": l.room or "—",
+                        "subject": f"{l.subject} [{l.lesson_type}]" if l.lesson_type else l.subject,
+                        "teacher": short_name(l.teacher),
+                        "subgroup": l.subgroup
+                    })
+        else:
+            for l in slot_lessons:
+                sub_tag = f" (п/г {l.subgroup})" if l.subgroup else ""
+                type_str = f" [{l.lesson_type}]" if l.lesson_type else ""
+                room_str = l.room or "—"
+                if l.address and "курчатова" not in l.address.lower():
+                    room_str = f"{room_str} ⚠️"
+
+                result_rows.append({
+                    "slot_id": slot_id,
+                    "room": room_str,
+                    "subject": f"{l.subject}{type_str}{sub_tag}",
+                    "teacher": short_name(l.teacher),
+                    "subgroup": l.subgroup
+                })
+
+    result_rows.sort(key=lambda x: (x["slot_id"], x["subgroup"] or 0))
+    return result_rows
+
+
+# 1. Расписание на один день (карточка)
 def build_native_rich_schedule(
     user_name: str,
     group_name: str,
@@ -99,11 +164,8 @@ def build_native_rich_schedule(
     formatted_date = target_date.strftime("%d.%m.%Y")
     sub_title = f"{user_subgroup} п/г" if user_subgroup else "Вся группа"
 
-    filtered = [
-        l for l in lessons
-        if l.day == day_index and (l.subgroup is None or l.subgroup == user_subgroup or user_subgroup == 0)
-    ]
-    filtered.sort(key=lambda x: (x.slot_id, x.subgroup or 0))
+    day_lessons = [l for l in lessons if l.day == day_index]
+    display_items = _collapse_day_lessons(day_lessons, user_subgroup)
 
     blocks = [
         InputRichBlockSectionHeading(
@@ -114,7 +176,7 @@ def build_native_rich_schedule(
         )
     ]
 
-    if not filtered:
+    if not display_items:
         blocks.append(
             InputRichBlockParagraph(
                 text=RichTextItalic(text="🎉 Занятий нет — можно отдыхать! ✨")
@@ -122,35 +184,23 @@ def build_native_rich_schedule(
         )
         return InputRichMessage(blocks=blocks)
 
-    rows = []
-    header_cells = [
+    rows = [[
         RichBlockTableCell(text=RichTextBold(text="Пара"), is_header=True, align="center", valign="middle"),
         RichBlockTableCell(text=RichTextBold(text="Ауд."), is_header=True, align="center", valign="middle"),
         RichBlockTableCell(text=RichTextBold(text="Предмет"), is_header=True, align="left", valign="middle"),
         RichBlockTableCell(text=RichTextBold(text="Преподаватель"), is_header=True, align="left", valign="middle"),
-    ]
-    rows.append(header_cells)
+    ]]
 
-    for l in filtered:
-        slot = TIMESLOTS.get(l.slot_id, {"order": str(l.slot_id), "time": "--:--"})
+    for item in display_items:
+        slot = TIMESLOTS.get(item["slot_id"], {"order": str(item["slot_id"]), "time": "--:--"})
         start_time = slot["time"].split(" - ")[0]
 
-        room_str = l.room or "—"
-        if l.address and "курчатова" not in l.address.lower():
-            room_str = f"{room_str} ⚠️"
-
-        sub_tag = f" (п/г {l.subgroup})" if l.subgroup else ""
-        type_str = f" [{l.lesson_type}]" if l.lesson_type else ""
-        subject_str = f"{l.subject}{type_str}{sub_tag}"
-        teacher_str = short_name(l.teacher)
-
-        row_cells = [
+        rows.append([
             RichBlockTableCell(text=f"{slot['order']} ({start_time})", align="center", valign="middle"),
-            RichBlockTableCell(text=RichTextBold(text=room_str), align="center", valign="middle"),
-            RichBlockTableCell(text=subject_str, align="left", valign="middle"),
-            RichBlockTableCell(text=RichTextItalic(text=teacher_str), align="left", valign="middle"),
-        ]
-        rows.append(row_cells)
+            RichBlockTableCell(text=RichTextBold(text=item["room"]), align="center", valign="middle"),
+            RichBlockTableCell(text=item["subject"], align="left", valign="middle"),
+            RichBlockTableCell(text=RichTextItalic(text=item["teacher"]), align="left", valign="middle"),
+        ])
 
     blocks.append(
         InputRichBlockTable(
@@ -162,6 +212,7 @@ def build_native_rich_schedule(
     return InputRichMessage(blocks=blocks)
 
 
+# 2. Расписание на неделю
 def format_full_week_rich_message(
     user_name: str,
     group_name: str,
@@ -183,16 +234,13 @@ def format_full_week_rich_message(
 
     for day_i in range(6):
         day_date = start_monday + timedelta(days=day_i)
-        day_lessons = [
-            l for l in lessons
-            if l.day == day_i and (l.subgroup is None or l.subgroup == user_subgroup or user_subgroup == 0)
-        ]
-        day_lessons.sort(key=lambda x: (x.slot_id, x.subgroup or 0))
+        day_lessons = [l for l in lessons if l.day == day_i]
+        display_items = _collapse_day_lessons(day_lessons, user_subgroup)
 
         blocks.append(InputRichBlockDivider())
         day_heading = f"▫️ {DAYS_NAMES[day_i]} ({day_date.strftime('%d.%m')})"
 
-        if not day_lessons:
+        if not display_items:
             blocks.append(
                 InputRichBlockParagraph(
                     text=RichTextItalic(text=f"{day_heading} — пар нет 🌴")
@@ -213,23 +261,15 @@ def format_full_week_rich_message(
             RichBlockTableCell(text=RichTextBold(text="Преподаватель"), is_header=True, align="left", valign="middle"),
         ]]
 
-        for l in day_lessons:
-            slot = TIMESLOTS.get(l.slot_id, {"order": str(l.slot_id), "time": "--:--"})
+        for item in display_items:
+            slot = TIMESLOTS.get(item["slot_id"], {"order": str(item["slot_id"]), "time": "--:--"})
             start_time = slot["time"].split(" - ")[0]
-
-            room_str = l.room or "—"
-            if l.address and "курчатова" not in l.address.lower():
-                room_str = f"{room_str} ⚠️"
-
-            sub_tag = f" (п/г {l.subgroup})" if l.subgroup else ""
-            type_str = f" [{l.lesson_type}]" if l.lesson_type else ""
-            teacher_str = short_name(l.teacher)
 
             rows.append([
                 RichBlockTableCell(text=f"{slot['order']} ({start_time})", align="center", valign="middle"),
-                RichBlockTableCell(text=RichTextBold(text=room_str), align="center", valign="middle"),
-                RichBlockTableCell(text=f"{l.subject}{type_str}{sub_tag}", align="left", valign="middle"),
-                RichBlockTableCell(text=RichTextItalic(text=teacher_str), align="left", valign="middle"),
+                RichBlockTableCell(text=RichTextBold(text=item["room"]), align="center", valign="middle"),
+                RichBlockTableCell(text=item["subject"], align="left", valign="middle"),
+                RichBlockTableCell(text=RichTextItalic(text=item["teacher"]), align="left", valign="middle"),
             ])
 
         blocks.append(
@@ -243,6 +283,7 @@ def format_full_week_rich_message(
     return InputRichMessage(blocks=blocks)
 
 
+# 3. Расписание преподавателя
 def format_teacher_rich_schedule(
     teacher_full_name: str,
     start_monday: date,
@@ -262,7 +303,7 @@ def format_teacher_rich_schedule(
         ),
         InputRichBlockParagraph(
             text=RichTextItalic(text=f"📚 Дисциплины: {subjects_text}")
-        )
+        ),
     ]
 
     if not lessons_data:
@@ -312,12 +353,11 @@ def format_teacher_rich_schedule(
 
             sub_tag = f" (п/г {l.subgroup})" if l.subgroup else ""
             type_str = f" [{l.lesson_type}]" if l.lesson_type else ""
-            groups_str = l.groups_display
 
             rows.append([
                 RichBlockTableCell(text=f"{slot['order']} ({start_time})", align="center", valign="middle"),
                 RichBlockTableCell(text=RichTextBold(text=room_str), align="center", valign="middle"),
-                RichBlockTableCell(text=groups_str, align="center", valign="middle"),
+                RichBlockTableCell(text=l.groups_display, align="center", valign="middle"),
                 RichBlockTableCell(text=f"{l.subject}{type_str}{sub_tag}", align="left", valign="middle"),
             ])
 
@@ -332,6 +372,7 @@ def format_teacher_rich_schedule(
     return InputRichMessage(blocks=blocks)
 
 
+# 4. Расписание предмета
 def format_subject_rich_schedule(
     subject_title: str,
     start_monday: date,
@@ -354,7 +395,7 @@ def format_subject_rich_schedule(
         ),
         InputRichBlockParagraph(
             text=RichTextItalic(text=f"👨‍🏫 Преподаватели: {teachers_text}")
-        )
+        ),
     ]
 
     if not lessons_data:
@@ -404,13 +445,12 @@ def format_subject_rich_schedule(
 
             sub_tag = f" (п/г {l.subgroup})" if l.subgroup else ""
             type_str = f" [{l.lesson_type}]" if l.lesson_type else ""
-            groups_str = l.groups_display
             teacher_str = short_name(l.teacher)
 
             rows.append([
                 RichBlockTableCell(text=f"{slot['order']} ({start_time})", align="center", valign="middle"),
                 RichBlockTableCell(text=RichTextBold(text=room_str), align="center", valign="middle"),
-                RichBlockTableCell(text=groups_str, align="center", valign="middle"),
+                RichBlockTableCell(text=l.groups_display, align="center", valign="middle"),
                 RichBlockTableCell(text=f"{teacher_str}{type_str}{sub_tag}", align="left", valign="middle"),
             ])
 
@@ -425,6 +465,7 @@ def format_subject_rich_schedule(
     return InputRichMessage(blocks=blocks)
 
 
+# 5. Оповещения об изменениях в расписании
 def build_schedule_changes_rich_message(
     group_name: str,
     start_monday: date,
@@ -443,7 +484,7 @@ def build_schedule_changes_rich_message(
             text=RichTextItalic(
                 text="Сайт bio.bsu.by обновил расписание вашей группы:"
             )
-        )
+        ),
     ]
 
     by_days = defaultdict(list)
@@ -506,19 +547,25 @@ def build_schedule_changes_rich_message(
     return InputRichMessage(blocks=blocks)
 
 
+# 6. Профилизации и спецкурсы
 def build_specializations_rich_message(
     group_name: str,
     start_monday: date,
     lessons: list[LessonDTO],
+    target_spec: int | None = None,
 ) -> InputRichMessage:
     end_saturday = start_monday + timedelta(days=5)
 
-    spec_lessons = [l for l in lessons if l.specialization_order is not None or (l.common_discipline and not l.subgroup)]
+    spec_lessons = [
+        l for l in lessons
+        if l.specialization_order is not None or (l.common_discipline and not l.subgroup)
+    ]
 
+    title_suffix = f" • Направление #{target_spec}" if target_spec else ""
     blocks = [
         InputRichBlockSectionHeading(
             text=RichTextBold(
-                text=f"🧬 Профилизации и спецкурсы\n👥 {group_name} • {start_monday.strftime('%d.%m')} — {end_saturday.strftime('%d.%m')}"
+                text=f"🧬 Профилизации и спецкурсы{title_suffix}\n👥 {group_name} • {start_monday.strftime('%d.%m')} — {end_saturday.strftime('%d.%m')}"
             ),
             size=2,
         )
@@ -540,11 +587,19 @@ def build_specializations_rich_message(
         day_date = start_monday + timedelta(days=day_i)
         day_name = DAYS_NAMES[day_i]
         slot_info = TIMESLOTS.get(slot_id, {"order": str(slot_id), "time": "--:--"})
-        
+
         slot_items = slots_map[(day_i, slot_id)]
         slot_items.sort(key=lambda x: x.specialization_order or 0)
 
-        common_name = next((l.common_discipline for l in slot_items if l.common_discipline), "Профилизации")
+        if target_spec:
+            user_filtered = [l for l in slot_items if l.specialization_order == target_spec]
+            if user_filtered:
+                slot_items = user_filtered
+
+        common_name = next(
+            (l.common_discipline for l in slot_items if l.common_discipline),
+            "Спецпрактикум (дисциплины профилизации)"
+        )
 
         blocks.append(InputRichBlockDivider())
         blocks.append(
@@ -589,11 +644,12 @@ def build_specializations_rich_message(
     return InputRichMessage(blocks=blocks)
 
 
+# 7. Сводка свободных аудиторий на весь день
 def format_free_rooms_day_summary_rich(
     target_date: date,
     day_index: int,
     data: dict[str, Any],
-    only_potochki: bool = False
+    only_potochki: bool = False,
 ) -> InputRichMessage:
     day_name = DAYS_NAMES[day_index]
     formatted_date = target_date.strftime("%d.%m.%Y")
@@ -607,7 +663,7 @@ def format_free_rooms_day_summary_rich(
         )
     ]
 
-    if data["all_day_free"] and not only_potochki:
+    if data.get("all_day_free") and not only_potochki:
         free_all_str = " • ".join(data["all_day_free"][:12])
         blocks.append(
             InputRichBlockParagraph(
@@ -618,10 +674,10 @@ def format_free_rooms_day_summary_rich(
         )
         blocks.append(InputRichBlockDivider())
 
-    for s in data["slots_summary"]:
+    for s in data.get("slots_summary", []):
         slot_info = TIMESLOTS.get(s["slot_id"], {"order": str(s["slot_id"]), "time": "--:--"})
         pot_str = ", ".join(s["free_potochki"]) if s["free_potochki"] else "все заняты 🔒"
-        
+
         line_text = f"📍 {slot_info['order']} пара ({slot_info['time']})\n🏛 Поточки: {pot_str}"
         if not only_potochki:
             cls_cnt = s["free_classrooms_count"]
@@ -632,19 +688,22 @@ def format_free_rooms_day_summary_rich(
     blocks.append(InputRichBlockDivider())
     blocks.append(
         InputRichBlockParagraph(
-            text=RichTextItalic(text="💡 Чтобы увидеть полный список кабинетов на конкретную пару, спросите: «свободные во вторник на 3 паре»")
+            text=RichTextItalic(
+                text="💡 Чтобы увидеть полный список кабинетов на конкретную пару, спросите: «свободные во вторник на 3 паре»"
+            )
         )
     )
 
     return InputRichMessage(blocks=blocks)
 
 
+# 8. Расписание конкретной аудитории
 def format_room_rich_schedule(
     room_title: str,
     start_monday: date,
     day_index: int,
     target_slot: int | None,
-    slots: list[RoomSlotDTO]
+    slots: list[RoomSlotDTO],
 ) -> InputRichMessage:
     day_name = DAYS_NAMES[day_index]
     target_date = start_monday + timedelta(days=day_index)
@@ -704,13 +763,14 @@ def format_room_rich_schedule(
     return InputRichMessage(blocks=blocks)
 
 
+# 9. Свободные аудитории на одну пару
 def format_free_rooms_rich_message(
     target_date: date,
     day_index: int,
     slot_id: int,
     free_potochki: list[str],
     free_classrooms: list[str],
-    only_potochki: bool = False
+    only_potochki: bool = False,
 ) -> InputRichMessage:
     day_name = DAYS_NAMES[day_index]
     formatted_date = target_date.strftime("%d.%m.%Y")

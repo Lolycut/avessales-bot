@@ -9,7 +9,7 @@ from aiogram.enums import ChatType
 from database import async_session_maker
 from models import User
 from services.schedule_cache import schedule_cache
-from keyboards import main_menu_kb, courses_kb, reg_subgroups_kb
+from keyboards import main_menu_kb, courses_kb, reg_subgroups_kb, reg_specializations_kb
 from config import get_minsk_now
 
 router = Router()
@@ -19,6 +19,7 @@ class RegistrationFSM(StatesGroup):
     choosing_course = State()
     choosing_group = State()
     choosing_subgroup = State()
+    choosing_specialization = State()
     entering_nickname = State()
 
 
@@ -84,12 +85,36 @@ async def process_group(callback: CallbackQuery, state: FSMContext):
 async def process_subgroup(callback: CallbackQuery, state: FSMContext):
     subgroup = int(callback.data.split("_")[2])
     await state.update_data(subgroup=subgroup)
-    
+    data = await state.get_data()
+    course = data.get("course", 1)
+    group_id = data.get("group_id")
+
+    if course >= 3 and group_id:
+        specs = schedule_cache.get_specializations_for_group(group_id, course)
+        if specs:
+            await callback.message.edit_text(
+                "🧬 <b>Шаг 3.5 из 4: Профилизация (спецпрактикум)</b>\n\n"
+                "Выберите вашу <b>кафедру / направление</b>:\n"
+                "<i>(Это позволит боту выделять именно ваши пары по кнопке «Профилизации»)</i>",
+                reply_markup=reg_specializations_kb(specs)
+            )
+            await state.set_state(RegistrationFSM.choosing_specialization)
+            return
+
+    # Для 1-2 курсов сразу переходим к имени:
+    await ask_nickname(callback, state)
+
+
+@router.callback_query(RegistrationFSM.choosing_specialization, F.data.startswith("reg_spec_"))
+async def process_specialization(callback: CallbackQuery, state: FSMContext):
+    spec_order = int(callback.data.split("_")[2])
+    await state.update_data(specialization=spec_order if spec_order != 0 else None)
+    await ask_nickname(callback, state)
+
+
+async def ask_nickname(callback: CallbackQuery, state: FSMContext):
     default_name = callback.from_user.first_name or "Студент"
-    sub_title = f"{subgroup}-я подгруппа" if subgroup != 0 else "Вся группа"
-    
     await callback.message.edit_text(
-        f"Подгруппа: <b>{sub_title}</b>\n\n"
         f"<b>Шаг 4 из 4:</b> Как к вам обращаться?\n"
         f"Отправьте имя текстом в чат или нажмите кнопку ниже:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
@@ -122,24 +147,31 @@ async def save_user_registration(user_id: int, username: str | None, nickname: s
     async with async_session_maker() as session:
         user = await session.get(User, user_id)
         if not user:
-            user = User(telegram_id=user_id, registered_at=get_minsk_now())
+            user = User(
+                telegram_id=user_id,
+                registered_at=get_minsk_now(),
+                notifications_enabled=True,
+                change_notifications_enabled=True
+            )
             session.add(user)
-            
+
         user.username = username
         user.first_name = nickname
-        
+
         if "group_id" in data:
             user.group_id = data["group_id"]
         if "subgroup" in data:
             subgroup_val = data["subgroup"]
             user.subgroup = subgroup_val if subgroup_val != 0 else None
-            
-        user.notifications_enabled = True
+        user.specialization = data.get("specialization")
+
+        is_notif_enabled = user.notifications_enabled
         await session.commit()
 
     await state.clear()
     safe_nick = html.escape(nickname)
+
     await target_msg.answer(
         f"🎉 <b>Отлично, {safe_nick}! Регистрация завершена!</b>",
-        reply_markup=main_menu_kb(True)
+        reply_markup=main_menu_kb(is_notif_enabled)
     )

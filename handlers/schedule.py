@@ -26,7 +26,7 @@ from services.formatter import (
     DAYS_NAMES
 )
 from services.query_parser import parse_schedule_query
-from keyboards import week_nav_kb
+from keyboards import week_nav_kb, spec_view_toggle_kb
 from config import get_minsk_now
 
 router = Router()
@@ -273,23 +273,21 @@ async def callback_show_week_specializations(callback: CallbackQuery, bot: Bot):
         return
 
     is_group_chat = callback.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
+    user_spec = None
+    force_all = ("_all" in raw_payload)
 
-    if len(parts) >= 3 and parts[1].isdigit():
-        group_id = int(parts[1])
-    else:
-        async with async_session_maker() as session:
-            if is_group_chat:
-                chat_obj = await session.get(Chat, callback.message.chat.id)
-                if not chat_obj or not chat_obj.group_id:
-                    await callback.answer("Группа не выбрана", show_alert=True)
-                    return
-                group_id = chat_obj.group_id
-            else:
-                user = await session.get(User, callback.from_user.id)
-                if not user or not user.group_id:
-                    await callback.answer("Сначала выберите группу", show_alert=True)
-                    return
-                group_id = user.group_id
+    async with async_session_maker() as session:
+        if is_group_chat:
+            chat_obj = await session.get(Chat, callback.message.chat.id)
+            group_id = chat_obj.group_id if chat_obj else None
+        else:
+            user = await session.get(User, callback.from_user.id)
+            group_id = user.group_id if user else None
+            user_spec = user.specialization if (user and not force_all) else None
+
+    if not group_id:
+        await callback.answer("Группа не выбрана", show_alert=True)
+        return
 
     group = schedule_cache.get_group_by_id(group_id)
     if not group:
@@ -302,11 +300,17 @@ async def callback_show_week_specializations(callback: CallbackQuery, bot: Bot):
     rich_msg = build_specializations_rich_message(
         group_name=group_title,
         start_monday=actual_monday,
-        lessons=lessons
+        lessons=lessons,
+        target_spec=user_spec
     )
 
     await callback.answer()
-    await bot.send_rich_message(chat_id=callback.message.chat.id, rich_message=rich_msg)
+
+    kb = None
+    if user_spec or force_all:
+        kb = spec_view_toggle_kb(date_str, group.id, current_is_all=force_all)
+
+    await bot.send_rich_message(chat_id=callback.message.chat.id, rich_message=rich_msg, reply_markup=kb)
 
 
 @router.message(F.text)
@@ -490,6 +494,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         subject_match = schedule_cache.find_subject_schedule(
             target_date=parsed["date"],
             canon_subject=parsed["canon_subject"],
+            schedule_stems=parsed.get("schedule_stems"),
             raw_word=parsed["raw_subject_word"],
             query_course=q_course,
             query_group_num=q_group_num
