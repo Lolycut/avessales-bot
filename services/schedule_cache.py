@@ -31,43 +31,204 @@ TEACHER_STOP_WORDS = {
 KNOWN_POTOCHKI = ["1 п.а.", "2 п.а.", "3 п.а."]
 
 
-def _extract_surname(full_teacher_name: str) -> str:
+# Разбор профиля преподавателя из базы
+def parse_teacher_profile(full_name: str) -> dict[str, Any]:
     clean = re.sub(
         r"^(?:(?:ст\.\s*)?преп\.?|доц\.?|проф\.?|ассист\.?|акад\.?)\s+",
         "",
-        full_teacher_name.strip(),
+        full_name.strip(),
         flags=re.IGNORECASE
-    )
+    ).strip()
+
     parts = clean.split()
-    for p in parts:
-        word = re.sub(r"[^\w\-]", "", p)
-        if len(word) >= 3 and not re.match(r"^[А-ЯЁA-Z]\.?$", p):
-            return word.lower()
-    return parts[0].lower() if parts else ""
+    surname_raw = parts[0] if parts else clean
+    surname = re.sub(r"[^\w\-]", "", surname_raw).lower()
+
+    # Сбор инициалов
+    initials = []
+    for p in parts[1:]:
+        inits = re.findall(r"([а-яёa-z])\.?", p.lower())
+        for char in inits:
+            if char.isalpha():
+                initials.append(char)
+
+    gender = "m"
+    stem = surname
+
+    if surname.endswith(("ова", "ева", "ёва", "ина", "ына")):
+        gender = "f"
+        stem = surname[:-1]
+    elif surname.endswith(("ская", "цкая")):
+        gender = "f"
+        stem = surname[:-4] + "ск"
+    elif surname.endswith(("ая", "яя")) and len(surname) > 4:
+        gender = "f"
+        stem = surname[:-2]
+    elif surname.endswith(("ов", "ев", "ёв", "ин", "ын")):
+        gender = "m"
+        stem = surname
+    elif surname.endswith(("ский", "цкий")):
+        gender = "m"
+        stem = surname[:-4] + "ск"
+    elif surname.endswith(("ый", "ий")) and len(surname) > 4:
+        gender = "m"
+        stem = surname[:-2]
+    else:
+        gender = "u"
+
+    return {
+        "full_name": full_name,
+        "surname": surname,
+        "stem": stem,
+        "gender": gender,
+        "initials": initials
+    }
 
 
-def _match_teacher_surname(query_word: str, full_teacher_name: str) -> bool:
-    surname = _extract_surname(full_teacher_name)
-    q = query_word.lower().strip()
+# Извлечение инициалов из запроса студента
+def extract_query_initials(query_text: str) -> list[str]:
+    # Шаблон с точками: "В.В.", "В. В.", "В."
+    dot_inits = re.findall(r"\b([а-яёa-z])\.(?:\s*([а-яёa-z])\.)?", query_text, flags=re.IGNORECASE)
+    inits = []
+    for m in dot_inits:
+        for char in m:
+            if char:
+                inits.append(char.lower())
+    if inits:
+        return inits
 
-    if len(q) < 3 or len(surname) < 3:
-        return False
+    # Шаблон раздельных заглавных букв: "Храмцов В В"
+    space_inits = re.findall(r"(?<=\s)([А-ЯЁA-Z])(?:\s+([А-ЯЁA-Z]))?(?=\s|$)", query_text)
+    for m in space_inits:
+        for char in m:
+            if char and char.lower() not in {"в", "с", "к", "у", "о", "и"}:
+                inits.append(char.lower())
+    return inits
 
-    if q == surname:
-        return True
 
-    if len(q) == 3 or len(surname) == 3:
-        return q == surname
+def analyze_query_word(word: str) -> tuple[str, str | None]:
+    w = word.lower().strip()
 
-    common_len = 0
-    min_l = min(len(q), len(surname))
-    while common_len < min_l and q[common_len] == surname[common_len]:
-        common_len += 1
+    if w.endswith(("овой", "евой", "ёвой", "иной", "ыной")):
+        base = w[:-4] + ("ов" if w.endswith("овой") else ("ев" if w.endswith("евой") else "ин"))
+        return base, "f"
+    if w.endswith(("ской", "цкой", "скую", "цкую", "ская", "цкая")):
+        return w[:-4] + "ск", "f"
+    if w.endswith(("ая", "яя", "ую", "юю")) and len(w) > 4:
+        return w[:-2], "f"
 
-    if common_len >= 4 and common_len >= (len(surname) - 3) and common_len >= (len(q) - 3):
-        return True
+    if w.endswith(("овым", "евым", "ёвым", "иным", "ыным")):
+        base = w[:-4] + ("ов" if w.endswith("овым") else ("ев" if w.endswith("евым") else "ин"))
+        return base, "m"
+    if w.endswith(("ове", "еве", "ёве", "ине", "ыне")):
+        base = w[:-3] + ("ов" if w.endswith("ове") else ("ев" if w.endswith("еве") else "ин"))
+        return base, "m"
+    if w.endswith(("ов", "ев", "ёв", "ин", "ын")):
+        return w, "m"
+    if any(w.endswith(end) for end in ("ского", "цкого", "скому", "цкому", "ским", "цким", "ском", "цком")):
+        return w[:-5] + "ск" if len(w) > 5 else w, "m"
+    if w.endswith(("ский", "цкий")):
+        return w[:-4] + "ск", "m"
+    if any(w.endswith(end) for end in ("ого", "его", "ому", "ему")):
+        return w[:-3], "m"
+    if any(w.endswith(end) for end in ("ый", "ий", "ым", "им", "ом", "ем")) and len(w) > 4:
+        return w[:-2], "m"
 
-    return False
+    if w.endswith(("ова", "ева", "ёва", "ина", "ына")):
+        base = w[:-3] + ("ов" if w.endswith("ова") else ("ев" if w.endswith("ева") else "ин"))
+        return base, "ambiguous_a"
+
+    if w.endswith(("ову", "еву", "ёву", "ину", "ыну")):
+        base = w[:-3] + ("ов" if w.endswith("ову") else ("ев" if w.endswith("еву") else "ин"))
+        return base, "ambiguous_u"
+
+    if len(w) >= 4:
+        if w.endswith(("а", "я")):
+            return w[:-1], "ambiguous_consonant_a"
+        if w.endswith(("у", "ю")):
+            return w[:-1], "m"
+
+    return w, None
+
+
+# Система скоринга совпадений
+def score_teacher_match(
+    query_text: str,
+    query_word: str,
+    query_inits: list[str],
+    teacher_prof: dict[str, Any]
+) -> int:
+    q_stem, q_gender = analyze_query_word(query_word)
+    t_stem = teacher_prof["stem"]
+    t_gender = teacher_prof["gender"]
+    t_inits = teacher_prof["initials"]
+
+    # Проверка основы фамилии
+    is_stem_match = (q_stem == t_stem) or (
+        len(q_stem) >= 4 and len(t_stem) >= 4 and (
+            q_stem.startswith(t_stem[:4]) or t_stem.startswith(q_stem[:4])
+        ) and abs(len(q_stem) - len(t_stem)) <= 2
+    )
+
+    if not is_stem_match:
+        return 0
+
+    score = 50
+
+    # Проверка инициалов (наивысший приоритет при наличии)
+    if query_inits:
+        if t_inits:
+            if query_inits == t_inits:
+                score += 150  # Полное совпадение обоих инициалов
+            elif len(query_inits) == 1 and query_inits[0] == t_inits[0]:
+                score += 80   # Совпадение по первой букве имени
+            else:
+                score -= 150  # Инициалы чужие — отсекаем
+        else:
+            score -= 30
+
+    # Оценка грамматического рода и падежа
+    if q_gender == "m":
+        if t_gender == "m":
+            score += 50
+        elif t_gender == "f":
+            score -= 100  # Студент явно спросил мужчину ("Храмцов", "Храмцовым")
+
+    elif q_gender == "f":
+        if t_gender == "f":
+            score += 50
+        elif t_gender == "m":
+            score -= 100  # Студент явно спросил женщину ("Храмцовой", "Храмцовская")
+
+    elif q_gender == "ambiguous_a":
+        # Форма на "-а" (например, "Храмцова"):
+        # Если есть слова "пары", "расписание" — это мужской род в родительном падеже ("пары Храмцова")
+        has_genitive_context = any(w in query_text.lower() for w in ["пары", "пара", "расписание", "у", "кого"])
+        if has_genitive_context:
+            if t_gender == "m":
+                score += 40
+            elif t_gender == "f":
+                score += 15
+        else:
+            # Одиночный ввод "Храмцова" — именительный падеж женщины
+            if t_gender == "f":
+                score += 40
+            elif t_gender == "m":
+                score += 15
+
+    elif q_gender == "ambiguous_u":
+        if t_gender == "m":
+            score += 30
+        elif t_gender == "f":
+            score += 20
+
+    elif q_gender == "ambiguous_consonant_a":
+        if t_stem == q_stem:
+            score += 40
+        else:
+            score += 10
+
+    return max(0, score)
 
 
 def _is_valid_classroom_number(room_name: str) -> bool:
@@ -237,26 +398,34 @@ class ScheduleCache:
         if not words or not self._teachers_list:
             return None
 
-        matched_teachers: list[str] = []
-        for word in words:
-            for t in self._teachers_list:
-                if _match_teacher_surname(word, t):
-                    if t not in matched_teachers:
-                        matched_teachers.append(t)
-            if matched_teachers:
-                break
+        query_inits = extract_query_initials(query_text)
 
-        if not matched_teachers:
+        # Оценка совпадения каждого преподавателя в базе с запросом студента
+        scored_candidates: list[tuple[int, str]] = []
+        for t_name in self._teachers_list:
+            prof = parse_teacher_profile(t_name)
+            max_word_score = 0
+            for word in words:
+                s = score_teacher_match(query_text, word, query_inits, prof)
+                if s > max_word_score:
+                    max_word_score = s
+
+            if max_word_score > 40:
+                scored_candidates.append((max_word_score, t_name))
+
+        if not scored_candidates:
             return None
 
-        records = []
-        for t in matched_teachers:
-            records.extend(self._teacher_records.get(t, []))
+        # Сортировка по очкам совпадения
+        scored_candidates.sort(key=lambda x: x[0], reverse=True)
+        best_score, best_teacher = scored_candidates[0]
 
+        # Защита от слияния: берем расписание ТОЛЬКО ОДНОГО лучшего преподавателя
+        records = self._teacher_records.get(best_teacher, [])
         if not records:
             return None
 
-        display_name = max(matched_teachers, key=len)
+        display_name = best_teacher
 
         monday = target_date - timedelta(days=target_date.weekday())
         target_records = [r for r in records if r[2].start_date == monday]
