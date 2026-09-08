@@ -137,13 +137,13 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
     course_match = COURSE_REGEX.search(working_text)
     if course_match:
         target_course = int(course_match.group(1))
-        working_text = working_text[:course_match.start()] + " " + course_match[course_match.end():]
+        working_text = working_text[:course_match.start()] + " " + working_text[course_match.end():]
 
     is_next_week = any(w in working_text for w in ["след", "следующ", "будущ", "next"])
     only_my_group = bool(ONLY_MY_GROUP_REGEX.search(text))
 
     # 5. Поиск предмета
-    subj_match = extract_subject_from_query(text)
+    subj_match = extract_subject_from_query(working_text)
     if subj_match and not room_query and not FREE_ROOMS_KEYWORDS.search(text):
         canon_name, stems, raw_word = subj_match
 

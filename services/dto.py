@@ -34,6 +34,7 @@ class LessonDTO:
     subgroup: int | None = None
     specialization_order: int | None = None
     common_discipline: str | None = None
+    comment: str | None = None
 
 
 @dataclass(slots=True)
@@ -47,6 +48,7 @@ class TeacherSlotDTO:
     subgroup: int | None
     groups: list[str] = field(default_factory=list)
     groups_display: str = ""
+    comment: str | None = None
 
 
 @dataclass(slots=True)
@@ -61,6 +63,7 @@ class SubjectSlotDTO:
     groups: list[str] = field(default_factory=list)
     groups_display: str = ""
     subject_name: str = ""
+    comment: str | None = None
 
 
 @dataclass(slots=True)
@@ -74,6 +77,7 @@ class ScheduleChangeDTO:
     room: str | None = None
     teacher: str | None = None
     details: list[str] = field(default_factory=list)
+    comment: str | None = None
 
 @dataclass(slots=True)
 class RoomSlotDTO:
@@ -87,3 +91,4 @@ class RoomSlotDTO:
     subgroup: int | None
     groups: list[str] = field(default_factory=list)
     groups_display: str = ""
+    comment: str | None = None

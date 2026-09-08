@@ -21,7 +21,6 @@ def main_menu_kb(notifications: bool = True) -> ReplyKeyboardMarkup:
     )
 
 
-
 # 2. Настройки пользователя
 def settings_inline_kb(
     morning_enabled: bool,
@@ -125,13 +124,14 @@ def reg_specializations_kb(specs: dict[int, str]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-# 4. Навигация по неделе и профилизациям
+# 4. Навигация по неделе, профилизациям и примечаниям
 def week_nav_kb(
     current_monday: date,
     group_id: int | None = None,
     subgroup: int | None = None,
     has_offcampus: bool = False,
     has_specializations: bool = False,
+    has_comments: bool = False,
 ) -> InlineKeyboardMarkup:
     prev_monday = current_monday - timedelta(days=7)
     next_monday = current_monday + timedelta(days=7)
@@ -147,11 +147,13 @@ def week_nav_kb(
         next_cb = f"week_date_{next_date_str}_{group_id}_{sub_val}"
         loc_cb = f"week_loc_{curr_date_str}_{group_id}_{sub_val}"
         spec_cb = f"week_spec_{curr_date_str}_{group_id}_{sub_val}"
+        comm_cb = f"week_comm_{curr_date_str}_{group_id}_{sub_val}"
     else:
         prev_cb = f"week_date_{prev_date_str}"
         next_cb = f"week_date_{next_date_str}"
         loc_cb = f"week_loc_{curr_date_str}"
         spec_cb = f"week_spec_{curr_date_str}"
+        comm_cb = f"week_comm_{curr_date_str}"
 
     buttons = [
         [
@@ -166,6 +168,12 @@ def week_nav_kb(
             InlineKeyboardButton(text="🧬 Профилизации (Спецкурсы)", callback_data=spec_cb)
         ])
 
+    # Кнопка примечаний / комментариев к парам
+    if has_comments:
+        buttons.append([
+            InlineKeyboardButton(text="✏️ Примечания к парам", callback_data=comm_cb)
+        ])
+
     # Кнопка выездных пар
     if has_offcampus:
         buttons.append([
@@ -173,6 +181,24 @@ def week_nav_kb(
         ])
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def comments_back_kb(
+    date_str: str, 
+    group_id: int | None = None, 
+    subgroup: int | None = None
+) -> InlineKeyboardMarkup:
+    sub_val = subgroup if subgroup is not None else 0
+    if group_id is not None:
+        cb = f"week_date_{date_str}_{group_id}_{sub_val}"
+    else:
+        cb = f"week_date_{date_str}"
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[
+            InlineKeyboardButton(text="⬅️ Назад к расписанию", callback_data=cb)
+        ]]
+    )
 
 
 def spec_view_toggle_kb(date_str: str, group_id: int, current_is_all: bool) -> InlineKeyboardMarkup:
@@ -186,7 +212,6 @@ def spec_view_toggle_kb(date_str: str, group_id: int, current_is_all: bool) -> I
     return InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text=btn_text, callback_data=cb_data)]]
     )
-
 
 
 # 5. Управление беседой (Групповой чат)
@@ -225,7 +250,7 @@ def group_chat_courses_kb(chat_id: int) -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="5️⃣ курс", callback_data=f"g_crs_{chat_id}_5"),
             ],
-            [   InlineKeyboardButton(text="⬅️ Назад", callback_data=f"g_back_{chat_id}")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"g_back_{chat_id}")],
         ]
     )
 

@@ -2,6 +2,7 @@ from datetime import date, datetime
 from config import get_minsk_now
 from sqlalchemy import BigInteger, ForeignKey, Index, SmallInteger, String, Boolean, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy import JSON
 
 
 class Base(DeclarativeBase):
@@ -102,6 +103,7 @@ class Lesson(Base):
     room: Mapped[str | None] = mapped_column(default=None)
     address: Mapped[str | None] = mapped_column(default=None)
     subgroup: Mapped[int | None] = mapped_column(SmallInteger, default=None)
+    comment: Mapped[str | None] = mapped_column(String, default=None, nullable=True)
 
     specialization_order: Mapped[int | None] = mapped_column(SmallInteger, default=None, nullable=True)
     common_discipline: Mapped[str | None] = mapped_column(String, default=None, nullable=True)

@@ -264,6 +264,8 @@ def calculate_schedule_diff(
                     details.append(f"Преп. {short_name(new_l.teacher)}")
                 if getattr(new_l, "common_discipline", None):
                     details.append(f"Профилизация: {new_l.common_discipline}")
+                if getattr(new_l, "comment", None):
+                    details.append(f"Примечание: {new_l.comment}")
 
                 changes_by_group[g_id].append(
                     ScheduleChangeDTO(
@@ -289,6 +291,16 @@ def calculate_schedule_diff(
                     diffs.append(f"Ауд: {old_l.room or '—'} ➔ {new_l.room or '—'}")
                 if (old_l.teacher or "—") != (new_l.teacher or "—"):
                     diffs.append(f"Преп: {short_name(old_l.teacher)} ➔ {short_name(new_l.teacher)}")
+
+                old_comm = (getattr(old_l, "comment", None) or "").strip()
+                new_comm = (getattr(new_l, "comment", None) or "").strip()
+                if old_comm != new_comm:
+                    if not old_comm:
+                        diffs.append(f"Примечание: {new_comm}")
+                    elif not new_comm:
+                        diffs.append("Примечание удалено")
+                    else:
+                        diffs.append(f"Примечание: {old_comm} ➔ {new_comm}")
 
                 if diffs:
                     changes_by_group[g_id].append(
@@ -355,6 +367,10 @@ async def sync_schedule_to_db(
         spec_order = int(raw_spec_order) if raw_spec_order is not None and str(raw_spec_order).isdigit() else None
         common_disc = (item.get("common_discipline") or "").strip() or None
 
+        # Парсинг комментария к паре
+        raw_comment = item.get("comment")
+        comment = str(raw_comment).strip() if raw_comment and str(raw_comment).strip() else None
+
         group_ids = item.get("group_ids") or []
         if not group_ids and "group_id" in item:
             group_ids = [item["group_id"]]
@@ -380,6 +396,8 @@ async def sync_schedule_to_db(
                 lesson_kwargs["specialization_order"] = spec_order
             if hasattr(Lesson, "common_discipline"):
                 lesson_kwargs["common_discipline"] = common_disc
+            if hasattr(Lesson, "comment"):
+                lesson_kwargs["comment"] = comment
 
             new_lessons.append(Lesson(**lesson_kwargs))
 

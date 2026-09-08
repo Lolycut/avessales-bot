@@ -79,6 +79,12 @@ async def send_week_schedule(
         for l in lessons
     )
 
+    has_comments = any(
+        bool(l.comment)
+        and (l.subgroup is None or l.subgroup == target_subgroup or target_subgroup == 0)
+        for l in lessons
+    )
+
     rich_msg = format_full_week_rich_message(
         user_name=user_name,
         group_name=group_title,
@@ -94,7 +100,8 @@ async def send_week_schedule(
             group_id=group.id, 
             subgroup=target_subgroup,
             has_offcampus=has_offcampus,
-            has_specializations=has_specializations
+            has_specializations=has_specializations,
+            has_comments=has_comments
         )
     )
 
@@ -116,7 +123,7 @@ async def cmd_list_teachers(message: Message):
     await message.answer(text)
 
 
-# ==================== НАВИГАЦИЯ ПО НЕДЕЛЯМ ==================== (и не похуй было мне это делать же, зато красиво)
+# ==================== НАВИГАЦИЯ ПО НЕДЕЛЯМ ====================
 
 @router.callback_query(F.data.startswith("week_date_"))
 async def callback_switch_week_by_date(callback: CallbackQuery, bot: Bot):
@@ -262,6 +269,99 @@ async def callback_show_offcampus_locations(callback: CallbackQuery):
                 f"• <b>{slot_info['order']} пара ({start_time})</b> | {room_tag}\n"
                 f"   📚 <b>{l.subject}{type_tag}{sub_tag}</b>{teacher_tag}\n"
                 f"   🏢 <b>Адрес:</b> <code>{l.address}</code>"
+            )
+            text_blocks.append(card)
+
+    await callback.message.reply("\n".join(text_blocks))
+
+
+# Обработчик кнопки «✏️ Примечания к парам»
+@router.callback_query(F.data.startswith("week_comm_"))
+async def callback_show_week_comments(callback: CallbackQuery):
+    raw_payload = callback.data.replace("week_comm_", "")
+    parts = raw_payload.split("_")
+    date_str = parts[0]
+
+    try:
+        target_monday = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        await callback.answer()
+        return
+
+    is_group_chat = callback.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
+
+    if len(parts) >= 3 and parts[1].isdigit():
+        group_id = int(parts[1])
+        target_subgroup = int(parts[2]) if parts[2].isdigit() else 0
+    else:
+        async with async_session_maker() as session:
+            if is_group_chat:
+                chat_obj = await session.get(Chat, callback.message.chat.id)
+                if not chat_obj or not chat_obj.group_id:
+                    await callback.answer("Группа не выбрана", show_alert=True)
+                    return
+                group_id = chat_obj.group_id
+                target_subgroup = 0
+            else:
+                user = await session.get(User, callback.from_user.id)
+                if not user or not user.group_id:
+                    await callback.answer("Сначала выберите группу: /start", show_alert=True)
+                    return
+                group_id = user.group_id
+                target_subgroup = user.subgroup or 0
+
+    group = schedule_cache.get_group_by_id(group_id)
+    if not group:
+        await callback.answer("Группа не найдена", show_alert=True)
+        return
+
+    actual_monday, lessons = schedule_cache.get_lessons_for_group(group.id, group.course, target_monday)
+
+    commented_lessons = [
+        l for l in lessons
+        if l.comment and (l.subgroup is None or l.subgroup == target_subgroup or target_subgroup == 0)
+    ]
+
+    if not commented_lessons:
+        await callback.answer("✨ На этой неделе примечаний и комментариев к парам нет!", show_alert=True)
+        return
+
+    await callback.answer()
+
+    by_days = defaultdict(list)
+    for l in commented_lessons:
+        by_days[l.day].append(l)
+
+    group_title = get_group_display_title(group)
+    end_saturday = actual_monday + timedelta(days=5)
+
+    text_blocks = [
+        f"✏️ <b>Примечания и комментарии к парам:</b>\n"
+        f"👥 <b>{group_title}</b>\n"
+        f"🗓 <b>{actual_monday.strftime('%d.%m')} — {end_saturday.strftime('%d.%m')}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━"
+    ]
+
+    for day_i in sorted(by_days.keys()):
+        day_date = actual_monday + timedelta(days=day_i)
+        day_name = DAYS_NAMES[day_i]
+        day_lessons = by_days[day_i]
+        day_lessons.sort(key=lambda x: (x.slot_id, x.subgroup or 0))
+
+        text_blocks.append(f"\n📍 <b>{day_name} ({day_date.strftime('%d.%m')}):</b>")
+
+        for l in day_lessons:
+            slot_info = TIMESLOTS.get(l.slot_id, {"order": str(l.slot_id), "time": "--:--"})
+            start_time = slot_info["time"].split(" - ")[0]
+            sub_tag = f" [п/г {l.subgroup}]" if l.subgroup else ""
+            type_tag = f" [{l.lesson_type}]" if l.lesson_type else ""
+            room_tag = f"ауд. {l.room}" if l.room else "ауд. —"
+            teacher_tag = f"\n   👤 <i>{short_name(l.teacher)}</i>" if l.teacher else ""
+
+            card = (
+                f"• <b>{slot_info['order']} пара ({start_time})</b> | {room_tag}\n"
+                f"   📚 <b>{l.subject}{type_tag}{sub_tag}</b>{teacher_tag}\n"
+                f"   💬 <b>Примечание:</b> <code>{l.comment}</code>"
             )
             text_blocks.append(card)
 
@@ -683,14 +783,12 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         q_course = parsed.get("target_course")
         q_group_num = target_group_dict.get("group_number") if target_group_dict else None
 
-        # Если запросили "у меня", "у нас", "моей группы" — фильтруем строго по группе пользователя
         if parsed.get("only_my_group") and group:
             q_course = group.course
             q_group_num = group.number
         elif not q_course and group:
             q_course = group.course
 
-        # Если номер группы был введён без курса (например "50" или "50 группа"), находим группу в кэше
         if q_group_num and not q_course:
             found_g = schedule_cache.find_group_by_number_any_course(q_group_num)
             if found_g:
@@ -773,7 +871,6 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
             await message.answer(f"🌴 <b>{day_name} ({formatted_date})</b> | {group_display_title}\nУ вас {status}!")
             return
             
-        # Расчет времени до конца пары
         time_left_str = ""
         if parsed["type"] == "current":
             now = get_minsk_now()
@@ -797,12 +894,14 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
             teacher_name = l.teacher if l.teacher else "Преподаватель не указан"
             teacher_str = f"👤 <i>{teacher_name}</i>"
             sub_tag = f" [Подгруппа {l.subgroup}]" if l.subgroup else ""
+            comm_str = f"\n✏️ <i>Примечание: {l.comment}</i>" if l.comment else ""
 
             text = (
                 f"{header}"
                 f"📍 {loc_str}\n"
                 f"📚 <b>{l.subject} ({l.lesson_type}){sub_tag}</b>\n"
                 f"{teacher_str}"
+                f"{comm_str}"
             )
         else:
             items = []
@@ -811,11 +910,13 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
                 loc_str = f"{room_str} ⚠️ <b>({l.address}) — ВЫЕЗД!</b>" if l.address and "курчатова" not in l.address.lower() else room_str
                 teacher_name = l.teacher if l.teacher else "Преподаватель не указан"
                 sub_badge = f"<b>[{l.subgroup}-я подгруппа]</b>" if l.subgroup else f"<b>[Вариант {idx}]</b>"
+                comm_str = f"\n   ✏️ <i>Примечание: {l.comment}</i>" if l.comment else ""
 
                 item_text = (
                     f"{sub_badge} | {loc_str}\n"
                     f"📚 <b>{l.subject} ({l.lesson_type})</b>\n"
                     f"👤 <i>{teacher_name}</i>"
+                    f"{comm_str}"
                 )
                 items.append(item_text)
 

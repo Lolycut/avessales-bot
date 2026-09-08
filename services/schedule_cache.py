@@ -328,7 +328,8 @@ class ScheduleCache:
                 address=l.address,
                 subgroup=l.subgroup,
                 specialization_order=getattr(l, "specialization_order", None),
-                common_discipline=getattr(l, "common_discipline", None)
+                common_discipline=getattr(l, "common_discipline", None),
+                comment=getattr(l, "comment", None)
             )
             new_lessons_by_group_week[(l.group_id, l.week_id)].append(lesson_dto)
 
@@ -416,11 +417,9 @@ class ScheduleCache:
         if not scored_candidates:
             return None
 
-        # Сортировка по очкам совпадения
         scored_candidates.sort(key=lambda x: x[0], reverse=True)
         best_score, best_teacher = scored_candidates[0]
 
-        # Защита от слияния: берем расписание ТОЛЬКО ОДНОГО лучшего преподавателя
         records = self._teacher_records.get(best_teacher, [])
         if not records:
             return None
@@ -443,7 +442,7 @@ class ScheduleCache:
         grouped_slots: dict[tuple, TeacherSlotDTO] = {}
         for lesson, group, week in target_records:
             g_tag = f"{group.course}-{group.number}" if group else "?"
-            key = (lesson.day, lesson.slot_id, lesson.subject, lesson.lesson_type, lesson.room)
+            key = (lesson.day, lesson.slot_id, lesson.subject, lesson.lesson_type, lesson.room, lesson.comment)
             
             if key not in grouped_slots:
                 grouped_slots[key] = TeacherSlotDTO(
@@ -454,7 +453,8 @@ class ScheduleCache:
                     room=lesson.room,
                     address=lesson.address,
                     subgroup=lesson.subgroup,
-                    groups=[g_tag]
+                    groups=[g_tag],
+                    comment=lesson.comment
                 )
             else:
                 if g_tag not in grouped_slots[key].groups:
@@ -508,24 +508,20 @@ class ScheduleCache:
                             matched.append((l, g, target_w))
             return act_m, matched
 
-        # 1. Сначала ищем по целевому курсу
         if query_course and query_course in self._weeks_by_course:
             actual_monday, records = collect_for_courses([query_course])
         else:
             actual_monday, records = collect_for_courses(all_courses)
 
-        # 2. Если на целевом курсе не найдено и группа не была жестко ограничена — ищем по остальным
         if not records and query_course and not query_group_num:
             actual_monday, records = collect_for_courses(all_courses)
 
         if not records:
             return None
 
-        # Красивое название: берём самое частотное оригинальное имя из базы
         subject_names = [r[0].subject for r in records]
         display_title = Counter(subject_names).most_common(1)[0][0] if subject_names else canon_subject
 
-        # Честное (возможно) формирование плашки курса/группы на основе РЕАЛЬНО найденных данных
         found_courses = sorted(list({r[1].course for r in records}))
         if query_group_num:
             badge = f"👥 Группа {query_course}-{query_group_num}" if query_course else f"👥 Группа {query_group_num}"
@@ -539,7 +535,7 @@ class ScheduleCache:
         grouped_slots: dict[tuple, SubjectSlotDTO] = {}
         for lesson, group, week in records:
             g_tag = f"{group.course}-{group.number}" if group else "?"
-            key = (lesson.day, lesson.slot_id, lesson.teacher, lesson.lesson_type, lesson.room, lesson.subgroup)
+            key = (lesson.day, lesson.slot_id, lesson.teacher, lesson.lesson_type, lesson.room, lesson.subgroup, lesson.comment)
 
             if key not in grouped_slots:
                 grouped_slots[key] = SubjectSlotDTO(
@@ -551,7 +547,8 @@ class ScheduleCache:
                     address=lesson.address,
                     subgroup=lesson.subgroup,
                     groups=[g_tag],
-                    subject_name=lesson.subject
+                    subject_name=lesson.subject,
+                    comment=lesson.comment
                 )
             else:
                 if g_tag not in grouped_slots[key].groups:
@@ -565,7 +562,6 @@ class ScheduleCache:
         lessons_list.sort(key=lambda x: (x.day, x.slot_id))
         return display_title, actual_monday, lessons_list, badge
 
-    # Поиск расписания конкретной аудитории / поточки
     def find_room_schedule(self, room_query: str, target_date: date) -> tuple[str, date, list[RoomSlotDTO]] | None:
         clean_q = room_query.lower().strip()
         monday = target_date - timedelta(days=target_date.weekday())
@@ -575,14 +571,12 @@ class ScheduleCache:
                 return False
             r = raw_room.strip().lower()
 
-            # Проверка поточек 1-3
             if "п.а." in clean_q or "поточ" in clean_q or "па" in clean_q:
                 pot_num = clean_q[0]
                 if r == pot_num or bool(re.search(rf"\b{pot_num}\s*(?:п\.?а\.?|па|поточн[а-я]*|поточк[а-я]*)\b", r)):
                     return True
                 return False
 
-            # Проверка точного номера кабинета
             return bool(re.search(rf"\b{re.escape(clean_q)}\b", r)) or clean_q in r
 
         all_matches: list[tuple[LessonDTO, GroupDTO]] = []
@@ -608,7 +602,7 @@ class ScheduleCache:
         grouped: dict[tuple, RoomSlotDTO] = {}
         for lesson, group in all_matches:
             g_tag = f"{group.course}-{group.number}" if group else "?"
-            key = (lesson.day, lesson.slot_id, lesson.subject, lesson.teacher, lesson.lesson_type)
+            key = (lesson.day, lesson.slot_id, lesson.subject, lesson.teacher, lesson.lesson_type, lesson.comment)
 
             if key not in grouped:
                 grouped[key] = RoomSlotDTO(
@@ -620,7 +614,8 @@ class ScheduleCache:
                     address=lesson.address,
                     teacher=lesson.teacher,
                     subgroup=lesson.subgroup,
-                    groups=[g_tag]
+                    groups=[g_tag],
+                    comment=lesson.comment
                 )
             else:
                 if g_tag not in grouped[key].groups:
@@ -634,7 +629,6 @@ class ScheduleCache:
         slots_list.sort(key=lambda x: (x.day, x.slot_id))
         return display_room, monday, slots_list
 
-    # Поиск свободных аудиторий на конкретную пару
     def find_free_rooms(
         self,
         target_date: date,
@@ -681,7 +675,6 @@ class ScheduleCache:
 
         return free_potochki, free_classrooms
 
-    # Поиск свободных аудиторий на весь день целиком
     def find_free_rooms_whole_day(
         self,
         target_date: date,

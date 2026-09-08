@@ -114,27 +114,34 @@ def _collapse_day_lessons(lessons: list[LessonDTO], user_subgroup: int = 0) -> l
                 "Спецпрактикум (дисциплины профилизации)"
             )
             l_type = spec_lessons[0].lesson_type or "ЛР"
+            has_comm = any(bool(getattr(l, "comment", None)) for l in spec_lessons)
+            comm_tag = " ✏️" if has_comm else ""
+
             result_rows.append({
                 "slot_id": slot_id,
                 "room": "Кафедры",
-                "subject": f"{common_title} [{l_type}]",
+                "subject": f"{common_title} [{l_type}]{comm_tag}",
                 "teacher": "См. кнопку 🧬",
-                "subgroup": None
+                "subgroup": None,
+                "comment": None
             })
 
             for l in slot_lessons:
                 if l.specialization_order is None:
+                    comm_tag = " ✏️" if getattr(l, "comment", None) else ""
                     result_rows.append({
                         "slot_id": slot_id,
                         "room": l.room or "—",
-                        "subject": f"{l.subject} [{l.lesson_type}]" if l.lesson_type else l.subject,
+                        "subject": f"{l.subject} [{l.lesson_type}]{comm_tag}" if l.lesson_type else f"{l.subject}{comm_tag}",
                         "teacher": short_name(l.teacher),
-                        "subgroup": l.subgroup
+                        "subgroup": l.subgroup,
+                        "comment": getattr(l, "comment", None)
                     })
         else:
             for l in slot_lessons:
                 sub_tag = f" (п/г {l.subgroup})" if l.subgroup else ""
                 type_str = f" [{l.lesson_type}]" if l.lesson_type else ""
+                comm_tag = " ✏️" if getattr(l, "comment", None) else ""
                 room_str = l.room or "—"
                 if l.address and "курчатова" not in l.address.lower():
                     room_str = f"{room_str} ⚠️"
@@ -142,9 +149,10 @@ def _collapse_day_lessons(lessons: list[LessonDTO], user_subgroup: int = 0) -> l
                 result_rows.append({
                     "slot_id": slot_id,
                     "room": room_str,
-                    "subject": f"{l.subject}{type_str}{sub_tag}",
+                    "subject": f"{l.subject}{type_str}{sub_tag}{comm_tag}",
                     "teacher": short_name(l.teacher),
-                    "subgroup": l.subgroup
+                    "subgroup": l.subgroup,
+                    "comment": getattr(l, "comment", None)
                 })
 
     result_rows.sort(key=lambda x: (x["slot_id"], x["subgroup"] or 0))
@@ -209,6 +217,23 @@ def build_native_rich_schedule(
             is_striped=True,
         )
     )
+
+    # Примечания под таблицей на день
+    notes = []
+    for item in display_items:
+        comm = item.get("comment")
+        if comm:
+            slot = TIMESLOTS.get(item["slot_id"], {"order": str(item["slot_id"])})
+            notes.append(f"✏️ {slot['order']} пара: {comm}")
+
+    if notes:
+        blocks.append(InputRichBlockDivider())
+        blocks.append(
+            InputRichBlockParagraph(
+                text=RichTextItalic(text="\n".join(notes))
+            )
+        )
+
     return InputRichMessage(blocks=blocks)
 
 
@@ -272,7 +297,6 @@ def format_full_week_rich_message(
                 RichBlockTableCell(text=RichTextItalic(text=item["teacher"]), align="left", valign="middle"),
             ])
 
-        
         blocks.append(
             InputRichBlockTable(
                 cells=rows,
@@ -354,12 +378,13 @@ def format_teacher_rich_schedule(
 
             sub_tag = f" (п/г {l.subgroup})" if l.subgroup else ""
             type_str = f" [{l.lesson_type}]" if l.lesson_type else ""
+            comm_tag = " ✏️" if getattr(l, "comment", None) else ""
 
             rows.append([
                 RichBlockTableCell(text=f"{slot['order']} ({time_interval})", align="center", valign="middle"),
                 RichBlockTableCell(text=RichTextBold(text=room_str), align="center", valign="middle"),
                 RichBlockTableCell(text=l.groups_display, align="center", valign="middle"),
-                RichBlockTableCell(text=f"{l.subject}{type_str}{sub_tag}", align="left", valign="middle"),
+                RichBlockTableCell(text=f"{l.subject}{type_str}{sub_tag}{comm_tag}", align="left", valign="middle"),
             ])
 
         blocks.append(
@@ -446,13 +471,14 @@ def format_subject_rich_schedule(
 
             sub_tag = f" (п/г {l.subgroup})" if l.subgroup else ""
             type_str = f" [{l.lesson_type}]" if l.lesson_type else ""
+            comm_tag = " ✏️" if getattr(l, "comment", None) else ""
             teacher_str = short_name(l.teacher)
 
             rows.append([
                 RichBlockTableCell(text=f"{slot['order']} ({time_interval})", align="center", valign="middle"),
                 RichBlockTableCell(text=RichTextBold(text=room_str), align="center", valign="middle"),
                 RichBlockTableCell(text=l.groups_display, align="center", valign="middle"),
-                RichBlockTableCell(text=f"{teacher_str}{type_str}{sub_tag}", align="left", valign="middle"),
+                RichBlockTableCell(text=f"{teacher_str}{type_str}{sub_tag}{comm_tag}", align="left", valign="middle"),
             ])
 
         blocks.append(
@@ -625,12 +651,13 @@ def build_specializations_rich_message(
                 room_str = f"{room_str} ⚠️"
 
             type_str = f" [{l.lesson_type}]" if l.lesson_type else ""
+            comm_tag = " ✏️" if getattr(l, "comment", None) else ""
             teacher_str = short_name(l.teacher)
 
             rows.append([
                 RichBlockTableCell(text=order_label, align="center", valign="middle"),
                 RichBlockTableCell(text=RichTextBold(text=room_str), align="center", valign="middle"),
-                RichBlockTableCell(text=f"{l.subject}{type_str}", align="left", valign="middle"),
+                RichBlockTableCell(text=f"{l.subject}{type_str}{comm_tag}", align="left", valign="middle"),
                 RichBlockTableCell(text=RichTextItalic(text=teacher_str), align="left", valign="middle"),
             ])
 
@@ -744,12 +771,13 @@ def format_room_rich_schedule(
         slot_info = TIMESLOTS.get(s.slot_id, {"order": str(s.slot_id), "time": "--:--"})
         start_time = slot_info["time"].split(" - ")[0]
         type_str = f" [{s.lesson_type}]" if s.lesson_type else ""
+        comm_tag = " ✏️" if getattr(s, "comment", None) else ""
         teacher_str = short_name(s.teacher)
 
         rows.append([
             RichBlockTableCell(text=f"{slot_info['order']} ({start_time})", align="center", valign="middle"),
             RichBlockTableCell(text=RichTextBold(text=s.groups_display), align="center", valign="middle"),
-            RichBlockTableCell(text=f"{s.subject}{type_str}", align="left", valign="middle"),
+            RichBlockTableCell(text=f"{s.subject}{type_str}{comm_tag}", align="left", valign="middle"),
             RichBlockTableCell(text=RichTextItalic(text=teacher_str), align="left", valign="middle"),
         ])
 
