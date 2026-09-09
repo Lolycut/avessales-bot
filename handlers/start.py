@@ -9,7 +9,13 @@ from aiogram.enums import ChatType
 from database import async_session_maker
 from models import User
 from services.schedule_cache import schedule_cache
-from keyboards import main_menu_kb, courses_kb, reg_subgroups_kb, reg_specializations_kb
+from keyboards import (
+    main_menu_kb, 
+    courses_kb, 
+    magistracy_groups_kb, 
+    reg_subgroups_kb, 
+    reg_specializations_kb
+)
 from config import get_minsk_now
 
 router = Router()
@@ -45,10 +51,36 @@ async def cmd_start(message: Message, state: FSMContext):
     await state.set_state(RegistrationFSM.choosing_course)
 
 
+@router.callback_query(RegistrationFSM.choosing_course, F.data == "sel_magistracy")
+async def process_magistracy_course(callback: CallbackQuery, state: FSMContext):
+    mag_groups = schedule_cache.get_all_magistracy_groups()
+    if not mag_groups:
+        await callback.answer("⚠️ Группы магистратуры пока не найдены в базе!", show_alert=True)
+        return
+
+    await state.update_data(course=None, is_magistracy=True)
+
+    await callback.message.edit_text(
+        "🎓 Выбрана: <b>Магистратура</b>\n\n"
+        "<b>Шаг 2 из 4:</b> Выберите вашу специальность и курс:",
+        reply_markup=magistracy_groups_kb(mag_groups)
+    )
+    await state.set_state(RegistrationFSM.choosing_group)
+
+
+@router.callback_query(RegistrationFSM.choosing_group, F.data == "back_to_courses")
+async def process_back_to_courses(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        "👋 <b>Шаг 1 из 4:</b> Выберите ваш <b>курс</b>:",
+        reply_markup=courses_kb()
+    )
+    await state.set_state(RegistrationFSM.choosing_course)
+
+
 @router.callback_query(RegistrationFSM.choosing_course, F.data.startswith("sel_course_"))
 async def process_course(callback: CallbackQuery, state: FSMContext):
     course = int(callback.data.split("_")[2])
-    await state.update_data(course=course)
+    await state.update_data(course=course, is_magistracy=False)
 
     groups = schedule_cache.get_all_groups_for_course(course)
 
@@ -71,10 +103,15 @@ async def process_group(callback: CallbackQuery, state: FSMContext):
     await state.update_data(group_id=group_id)
     
     group = schedule_cache.get_group_by_id(group_id)
-    group_number = group.number if group else "?"
+    if group and getattr(group, "study_mode", "") == "Магистратура":
+        group_label = f"Гр. {group.number} • {group.name} ({group.course} курс маг.)"
+    elif group:
+        group_label = f"Группа {group.number}"
+    else:
+        group_label = "Группа ?"
 
     await callback.message.edit_text(
-        f"Выбрана: <b>Группа {group_number}</b>\n\n"
+        f"Выбрана: <b>{group_label}</b>\n\n"
         f"<b>Шаг 3 из 4:</b> Выберите вашу <b>подгруппу</b> (для языков/лаб):",
         reply_markup=reg_subgroups_kb()
     )
@@ -86,10 +123,10 @@ async def process_subgroup(callback: CallbackQuery, state: FSMContext):
     subgroup = int(callback.data.split("_")[2])
     await state.update_data(subgroup=subgroup)
     data = await state.get_data()
-    course = data.get("course", 1)
+    course = data.get("course")
     group_id = data.get("group_id")
 
-    if course >= 3 and group_id:
+    if course and course >= 3 and group_id:
         specs = schedule_cache.get_specializations_for_group(group_id, course)
         if specs:
             await callback.message.edit_text(
@@ -101,7 +138,7 @@ async def process_subgroup(callback: CallbackQuery, state: FSMContext):
             await state.set_state(RegistrationFSM.choosing_specialization)
             return
 
-    # Для 1-2 курсов сразу переходим к имени:
+    # Для 1-2 курсов и магистратуры сразу переходим к имени:
     await ask_nickname(callback, state)
 
 

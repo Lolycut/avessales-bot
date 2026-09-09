@@ -247,6 +247,7 @@ class ScheduleCache:
         self._groups_by_id: dict[int, GroupDTO] = {}
         self._groups_by_course_num: dict[tuple[int, str], GroupDTO] = {}
         self._weeks_by_course: dict[int, list[WeekDTO]] = {}
+        self._magistracy_weeks: list[WeekDTO] = []
         self._lessons_by_group_week: dict[tuple[int, int], list[LessonDTO]] = {}
         self._teacher_records: dict[str, list[tuple[LessonDTO, GroupDTO, WeekDTO]]] = {}
         self._teachers_list: list[str] = []
@@ -259,7 +260,7 @@ class ScheduleCache:
 
     def get_cache_stats(self) -> dict[str, Any]:
         total_lessons = sum(len(v) for v in self._lessons_by_group_week.values())
-        total_weeks = sum(len(v) for v in self._weeks_by_course.values())
+        total_weeks = sum(len(v) for v in self._weeks_by_course.values()) + len(self._magistracy_weeks)
         return {
             "is_ready": self._is_ready,
             "groups_count": len(self._groups_by_id),
@@ -295,16 +296,21 @@ class ScheduleCache:
 
         new_weeks_by_id: dict[int, WeekDTO] = {}
         new_weeks_by_course: dict[int, list[WeekDTO]] = defaultdict(list)
+        new_magistracy_weeks: list[WeekDTO] = []
 
         for w in db_weeks:
+            mode = w.study_mode or "Дневная"
             dto = WeekDTO(
                 id=w.id,
                 course=w.course,
                 start_date=w.start_date,
-                study_mode=w.study_mode or "Дневная"
+                study_mode=mode
             )
             new_weeks_by_id[w.id] = dto
-            new_weeks_by_course[w.course].append(dto)
+            if mode == "Магистратура":
+                new_magistracy_weeks.append(dto)
+            elif w.course is not None:
+                new_weeks_by_course[w.course].append(dto)
 
         lessons_res = await session.execute(select(Lesson))
         db_lessons = lessons_res.scalars().all()
@@ -349,6 +355,7 @@ class ScheduleCache:
         self._groups_by_id = new_groups_by_id
         self._groups_by_course_num = new_groups_by_course_num
         self._weeks_by_course = dict(new_weeks_by_course)
+        self._magistracy_weeks = new_magistracy_weeks
         self._lessons_by_group_week = dict(new_lessons_by_group_week)
         self._teacher_records = dict(new_teacher_records)
         self._teachers_list = sorted(list(new_teachers_set))
@@ -368,16 +375,29 @@ class ScheduleCache:
         return self._groups_by_course_num.get((course, clean_num))
 
     def get_all_groups_for_course(self, course: int) -> list[GroupDTO]:
-        groups = [g for g in self._groups_by_id.values() if g.course == course]
+        groups = [g for g in self._groups_by_id.values() if g.course == course and g.study_mode == "Дневная"]
         groups.sort(key=lambda g: int(g.number) if g.number.isdigit() else 999)
         return groups
+
+    def get_all_magistracy_groups(self) -> list[GroupDTO]:
+        groups = [g for g in self._groups_by_id.values() if g.study_mode == "Магистратура"]
+        groups.sort(key=lambda g: (g.course, int(g.number) if str(g.number).isdigit() else 999))
+        return groups
+
+    def get_all_groups(self) -> list[GroupDTO]:
+        return list(self._groups_by_id.values())
 
     def get_all_teachers(self) -> list[str]:
         return self._teachers_list
 
     def get_lessons_for_group(self, group_id: int, course: int, target_date: date) -> tuple[date, list[LessonDTO]]:
         monday = target_date - timedelta(days=target_date.weekday())
-        weeks = self._weeks_by_course.get(course, [])
+        group = self._groups_by_id.get(group_id)
+
+        if group and group.study_mode == "Магистратура":
+            weeks = self._magistracy_weeks
+        else:
+            weeks = self._weeks_by_course.get(course, [])
 
         target_week = next((w for w in weeks if w.start_date == monday), None)
 
@@ -441,7 +461,11 @@ class ScheduleCache:
 
         grouped_slots: dict[tuple, TeacherSlotDTO] = {}
         for lesson, group, week in target_records:
-            g_tag = f"{group.course}-{group.number}" if group else "?"
+            if group and group.study_mode == "Магистратура":
+                g_tag = f"М{group.course}-{group.number}"
+            else:
+                g_tag = f"{group.course}-{group.number}" if group else "?"
+
             key = (lesson.day, lesson.slot_id, lesson.subject, lesson.lesson_type, lesson.room, lesson.comment)
             
             if key not in grouped_slots:
@@ -506,6 +530,21 @@ class ScheduleCache:
                     for l in lessons:
                         if is_match(l.subject):
                             matched.append((l, g, target_w))
+
+            # Также проверяем магистратуру, если курс не ограничен жестко дневным
+            if not query_course:
+                target_mag_w = next((w for w in self._magistracy_weeks if w.start_date == monday), None)
+                if not target_mag_w and self._magistracy_weeks:
+                    target_mag_w = self._magistracy_weeks[0]
+                if target_mag_w:
+                    for g in self.get_all_magistracy_groups():
+                        if query_group_num and str(g.number).strip() != str(query_group_num).strip():
+                            continue
+                        lessons = self._lessons_by_group_week.get((g.id, target_mag_w.id), [])
+                        for l in lessons:
+                            if is_match(l.subject):
+                                matched.append((l, g, target_mag_w))
+
             return act_m, matched
 
         if query_course and query_course in self._weeks_by_course:
@@ -522,9 +561,13 @@ class ScheduleCache:
         subject_names = [r[0].subject for r in records]
         display_title = Counter(subject_names).most_common(1)[0][0] if subject_names else canon_subject
 
-        found_courses = sorted(list({r[1].course for r in records}))
+        found_courses = sorted(list({r[1].course for r in records if r[1].study_mode == "Дневная"}))
+        has_mag = any(r[1].study_mode == "Магистратура" for r in records)
+
         if query_group_num:
             badge = f"👥 Группа {query_course}-{query_group_num}" if query_course else f"👥 Группа {query_group_num}"
+        elif has_mag and not found_courses:
+            badge = "🎓 Магистратура"
         elif len(found_courses) == 1:
             badge = f"🎓 {found_courses[0]} курс"
         elif len(found_courses) > 1:
@@ -534,7 +577,11 @@ class ScheduleCache:
 
         grouped_slots: dict[tuple, SubjectSlotDTO] = {}
         for lesson, group, week in records:
-            g_tag = f"{group.course}-{group.number}" if group else "?"
+            if group and group.study_mode == "Магистратура":
+                g_tag = f"М{group.course}-{group.number}"
+            else:
+                g_tag = f"{group.course}-{group.number}" if group else "?"
+
             key = (lesson.day, lesson.slot_id, lesson.teacher, lesson.lesson_type, lesson.room, lesson.subgroup, lesson.comment)
 
             if key not in grouped_slots:
@@ -593,6 +640,17 @@ class ScheduleCache:
                     if is_room_match(l.room):
                         all_matches.append((l, g))
 
+        # Учитываем пары магистратуры
+        target_mag_w = next((w for w in self._magistracy_weeks if w.start_date == monday), None)
+        if not target_mag_w and self._magistracy_weeks:
+            target_mag_w = self._magistracy_weeks[0]
+        if target_mag_w:
+            for g in self.get_all_magistracy_groups():
+                lessons = self._lessons_by_group_week.get((g.id, target_mag_w.id), [])
+                for l in lessons:
+                    if is_room_match(l.room):
+                        all_matches.append((l, g))
+
         if not all_matches:
             return None
 
@@ -601,7 +659,11 @@ class ScheduleCache:
 
         grouped: dict[tuple, RoomSlotDTO] = {}
         for lesson, group in all_matches:
-            g_tag = f"{group.course}-{group.number}" if group else "?"
+            if group and group.study_mode == "Магистратура":
+                g_tag = f"М{group.course}-{group.number}"
+            else:
+                g_tag = f"{group.course}-{group.number}" if group else "?"
+
             key = (lesson.day, lesson.slot_id, lesson.subject, lesson.teacher, lesson.lesson_type, lesson.comment)
 
             if key not in grouped:
@@ -654,6 +716,19 @@ class ScheduleCache:
                             if l.room:
                                 occupied_rooms.add(l.room.strip().lower())
 
+        # Учитываем занятость кабинетов магистратурой
+        target_mag_w = next((w for w in self._magistracy_weeks if w.start_date == monday), None)
+        if not target_mag_w and self._magistracy_weeks:
+            target_mag_w = self._magistracy_weeks[0]
+        if target_mag_w:
+            for g in self.get_all_magistracy_groups():
+                lessons = self._lessons_by_group_week.get((g.id, target_mag_w.id), [])
+                for l in lessons:
+                    if l.day == day_index:
+                        if slot_id is None or l.slot_id == slot_id:
+                            if l.room:
+                                occupied_rooms.add(l.room.strip().lower())
+
         free_potochki = []
         for p in KNOWN_POTOCHKI:
             p_num = p[0]
@@ -695,6 +770,19 @@ class ScheduleCache:
 
             for g in self.get_all_groups_for_course(course):
                 lessons = self._lessons_by_group_week.get((g.id, target_w.id), [])
+                for l in lessons:
+                    if l.day == day_index and l.room:
+                        r_clean = l.room.strip().lower()
+                        slots_occupied[l.slot_id].add(r_clean)
+                        all_day_occupied.add(r_clean)
+
+        # Учитываем пары магистратуры за весь день
+        target_mag_w = next((w for w in self._magistracy_weeks if w.start_date == monday), None)
+        if not target_mag_w and self._magistracy_weeks:
+            target_mag_w = self._magistracy_weeks[0]
+        if target_mag_w:
+            for g in self.get_all_magistracy_groups():
+                lessons = self._lessons_by_group_week.get((g.id, target_mag_w.id), [])
                 for l in lessons:
                     if l.day == day_index and l.room:
                         r_clean = l.room.strip().lower()

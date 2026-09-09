@@ -39,6 +39,9 @@ router = Router()
 
 
 def get_group_display_title(group: GroupDTO) -> str:
+    if getattr(group, "study_mode", "Дневная") == "Магистратура":
+        return f"🎓 Гр. {group.number} • {group.name} ({group.course} курс маг.)"
+
     clean_num = str(group.number).strip()
     if clean_num.startswith(f"{group.course}-"):
         tag = f"Гр. {clean_num}"
@@ -459,7 +462,7 @@ async def callback_teacher_week_nav(callback: CallbackQuery, bot: Bot):
         start_monday=monday,
         lessons_data=lessons_data
     )
-    kb = teacher_week_nav_kb(monday, teacher_idx)
+    kb = teacher_week_nav_kb(monday, teacher_idx) if teacher_idx != -1 else None
     await bot.send_rich_message(chat_id=callback.message.chat.id, rich_message=rich_msg, reply_markup=kb)
 
 

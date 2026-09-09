@@ -263,19 +263,27 @@ async def callback_pick_course_for_chat(callback: CallbackQuery, bot: Bot):
 async def callback_select_course_for_chat(callback: CallbackQuery, bot: Bot):
     parts = callback.data.split("_")
     chat_id = int(parts[2])
-    course = int(parts[3])
+    course_str = parts[3]
 
     if not await is_user_chat_admin(bot, chat_id, callback.from_user.id):
         await callback.answer("⛔ Только администраторы могут менять группу чата!", show_alert=True)
         return
 
-    groups = schedule_cache.get_all_groups_for_course(course)
+    # Разделяем логику для курсов 1-5 и магистратуры
+    if course_str == "mag":
+        groups = schedule_cache.get_all_magistracy_groups()
+        course_title = "Магистратура"
+    else:
+        course = int(course_str)
+        groups = schedule_cache.get_all_groups_for_course(course)
+        course_title = f"{course} курс"
+
     if not groups:
-        await callback.answer(f"⚠️ Группы {course} курса не найдены в базе!", show_alert=True)
+        await callback.answer(f"⚠️ Группы для «{course_title}» не найдены в базе!", show_alert=True)
         return
 
     await callback.message.edit_text(
-        f"🎓 Выбран: <b>{course} курс</b>\nВыберите академическую группу вашей беседы:",
+        f"🎓 Выбран: <b>{course_title}</b>\nВыберите академическую группу вашей беседы:",
         reply_markup=group_chat_groups_kb(chat_id, groups)
     )
     await callback.answer()
@@ -304,13 +312,18 @@ async def callback_save_group_for_chat(callback: CallbackQuery, bot: Bot):
             is_act, notif, chg = True, True, True
 
     group = schedule_cache.get_group_by_id(group_id)
-    grp_name = f"{group.course}-{group.number} ({group.name})" if group else "Выбрана"
+    if group and getattr(group, "study_mode", "") == "Магистратура":
+        grp_name = f"Гр. {group.number} • {group.name} ({group.course} курс маг.)"
+    elif group:
+        grp_name = f"{group.course}-{group.number} ({group.name})"
+    else:
+        grp_name = "Выбрана"
 
     await callback.message.edit_text(
         f"✅ <b>Группа беседы успешно установлена:</b> <code>{grp_name}</code>\n\n"
         f"Теперь любой участник может писать:\n"
         f"• <i>«Бот что завтра?»</i>\n"
-        f"• <i>«Бот 1-41 неделя»</i>\n"
+        f"• <i>«Бот расписание на неделю»</i>\n"
         f"• <i>«Бот какая 1 пара в пн?»</i> ✨",
         reply_markup=group_chat_settings_kb(chat_id, is_act, notif, chg)
     )

@@ -94,8 +94,20 @@ def courses_kb() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="5️⃣ курс", callback_data="sel_course_5"),
             ],
+            [
+                InlineKeyboardButton(text="🎓 Магистратура", callback_data="sel_magistracy"),
+            ],
         ]
     )
+
+
+def magistracy_groups_kb(groups: list[GroupDTO]) -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text=f"Гр. {g.number} • {g.name} ({g.course} курс)", callback_data=f"sel_group_{g.id}")]
+        for g in groups
+    ]
+    buttons.append([InlineKeyboardButton(text="⬅️ Выбрать другой курс", callback_data="back_to_courses")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def reg_subgroups_kb() -> InlineKeyboardMarkup:
@@ -250,16 +262,21 @@ def group_chat_courses_kb(chat_id: int) -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="5️⃣ курс", callback_data=f"g_crs_{chat_id}_5"),
             ],
+            [
+                InlineKeyboardButton(text="🎓 Магистратура", callback_data=f"g_crs_{chat_id}_mag"),
+            ],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"g_back_{chat_id}")],
         ]
     )
 
 
 def group_chat_groups_kb(chat_id: int, groups: list[GroupDTO]) -> InlineKeyboardMarkup:
-    buttons = [
-        [InlineKeyboardButton(text=f"Гр. {g.number} • {g.name}", callback_data=f"g_setgrp_{chat_id}_{g.id}")]
-        for g in groups
-    ]
+    buttons = []
+    for g in groups:
+        course_tag = f" ({g.course} курс)" if getattr(g, "study_mode", "") == "Магистратура" else ""
+        buttons.append([
+            InlineKeyboardButton(text=f"Гр. {g.number} • {g.name}{course_tag}", callback_data=f"g_setgrp_{chat_id}_{g.id}")
+        ])
     buttons.append([InlineKeyboardButton(text="⬅️ Выбрать другой курс", callback_data=f"g_pick_crs_{chat_id}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

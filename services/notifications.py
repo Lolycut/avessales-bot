@@ -186,7 +186,7 @@ async def dispatch_schedule_changes(
                 except Exception as e:
                     logger.warning(f"Не удалось доставить изменение в расписании в {chat_id}: {e}")
 
-    logger.info("✅ Оповещение об изменениях в расписании успешно разослано.")
+    logger.info("✅ Оповещение об изменениях в расписании успешно разослано")
 
 
 async def morning_notifications_loop(bot: Bot):

@@ -14,7 +14,7 @@ class GroupDTO:
 @dataclass(slots=True, frozen=True)
 class WeekDTO:
     id: int
-    course: int
+    course: int | None
     start_date: date
     study_mode: str = "Дневная"
 

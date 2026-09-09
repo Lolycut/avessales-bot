@@ -78,7 +78,7 @@ class Week(Base):
         primary_key=True, autoincrement=False, index=True
     )
     study_mode: Mapped[str] = mapped_column(default="Дневная")
-    course: Mapped[int] = mapped_column(SmallInteger, index=True)
+    course: Mapped[int | None] = mapped_column(SmallInteger, index=True, nullable=True, default=None)
     start_date: Mapped[date] = mapped_column(index=True)
     updated_at: Mapped[datetime] = mapped_column(
         default=get_minsk_now, server_default=func.now(), onupdate=get_minsk_now

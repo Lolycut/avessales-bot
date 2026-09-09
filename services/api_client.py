@@ -120,9 +120,12 @@ class BioBSUApiClient:
                 return None
         return None
 
-    async def fetch_groups(self, course: int, study_mode: str = "Дневная") -> list[dict[str, Any]]:
+    async def fetch_groups(self, course: int | None = None, study_mode: str = "Дневная") -> list[dict[str, Any]]:
         url = f"{self.base_url}/schedule/api/get-groups/"
-        params = {"study_mode": study_mode, "course": course}
+        params: dict[str, Any] = {"study_mode": study_mode}
+        if course is not None:
+            params["course"] = course
+
         response = await self._safe_get(url, params=params)
         if not response:
             return []
@@ -131,13 +134,16 @@ class BioBSUApiClient:
             if isinstance(data, dict) and "groups" in data:
                 return data["groups"]
         except Exception as e:
-            logger.error(f"Ошибка декодирования групп ({course} курс): {e}")
+            logger.error(f"Ошибка декодирования групп ({study_mode}, курс {course}): {e}")
         return []
 
-    async def fetch_week_for_date(self, target_date: date, course: int, study_mode: str = "Дневная") -> tuple[int | None, date]:
+    async def fetch_week_for_date(self, target_date: date, course: int | None = None, study_mode: str = "Дневная") -> tuple[int | None, date]:
         url = f"{self.base_url}/schedule/api/get-week-for-date/"
         monday = target_date - timedelta(days=target_date.weekday())
-        params = {"study_mode": study_mode, "course": course, "date": monday.strftime("%Y-%m-%d")}
+        params: dict[str, Any] = {"study_mode": study_mode, "date": monday.strftime("%Y-%m-%d")}
+        if course is not None:
+            params["course"] = course
+
         response = await self._safe_get(url, params=params)
         if not response:
             return None, monday
@@ -146,7 +152,12 @@ class BioBSUApiClient:
             week_data = data.get("week")
             if isinstance(week_data, dict):
                 w_id = week_data.get("id")
-                raw_start = week_data.get("start_date") or week_data.get("date_start") or week_data.get("start")
+                raw_start = (
+                    week_data.get("start_date")
+                    or week_data.get("date_start")
+                    or week_data.get("start")
+                    or week_data.get("starts_on")
+                            )
                 actual_monday = monday
                 if raw_start:
                     try:
@@ -160,12 +171,15 @@ class BioBSUApiClient:
             if week_id:
                 return int(week_id), monday
         except Exception as e:
-            logger.error(f"Ошибка декодирования недели ({course} курс): {e}")
+            logger.error(f"Ошибка декодирования недели ({study_mode}, курс {course}): {e}")
         return None, monday
 
-    async def fetch_schedule(self, week_id: int, course: int, study_mode: str = "Дневная") -> list[dict[str, Any]] | None:
+    async def fetch_schedule(self, week_id: int, course: int | None = None, study_mode: str = "Дневная") -> list[dict[str, Any]] | None:
         url = f"{self.base_url}/schedule/api/get-schedule/"
-        params = {"study_mode": study_mode, "course": course, "week_id": week_id}
+        params: dict[str, Any] = {"study_mode": study_mode, "week_id": week_id}
+        if course is not None:
+            params["course"] = course
+
         response = await self._safe_get(url, params=params)
         if not response:
             return None
@@ -174,14 +188,14 @@ class BioBSUApiClient:
             if isinstance(data, dict) and "lessons" in data:
                 return data["lessons"]
         except Exception as e:
-            logger.error(f"Ошибка декодирования расписания (week_id={week_id}): {e}")
+            logger.error(f"Ошибка декодирования расписания (week_id={week_id}, {study_mode}): {e}")
         return None
 
 
 api_client = BioBSUApiClient()
 
 
-async def sync_groups_to_db(session: AsyncSession, course: int, study_mode: str = "Дневная") -> list[int]:
+async def sync_groups_to_db(session: AsyncSession, course: int | None = None, study_mode: str = "Дневная") -> list[int]:
     raw_groups = await api_client.fetch_groups(course=course, study_mode=study_mode)
     if not raw_groups:
         return []
@@ -193,19 +207,22 @@ async def sync_groups_to_db(session: AsyncSession, course: int, study_mode: str 
             continue
         name = g_data.get("name", "")
         number = str(g_data.get("number") or "").strip()
+        # Для магистратуры курс указан внутри данных группы (1 или 2)
+        group_course = g_data.get("course") or course or 1
 
         existing = await session.get(Group, group_id)
         if existing:
             existing.name = name
             existing.number = number
-            existing.course = course
+            existing.course = group_course
             existing.study_mode = study_mode
         else:
-            session.add(Group(id=group_id, study_mode=study_mode, course=course, number=number, name=name))
+            session.add(Group(id=group_id, study_mode=study_mode, course=group_course, number=number, name=name))
         saved_group_ids.append(group_id)
 
     await session.commit()
-    logger.info(f"👥 Синхронизировано {len(saved_group_ids)} групп ({course} курс)")
+    course_label = f"{course} курс" if course else "все курсы"
+    logger.info(f"👥 Синхронизировано {len(saved_group_ids)} групп ({study_mode}, {course_label})")
     return saved_group_ids
 
 
@@ -324,7 +341,7 @@ async def sync_schedule_to_db(
     session: AsyncSession, 
     valid_group_ids: set[int],
     target_date: date | None = None, 
-    course: int = 1, 
+    course: int | None = None, 
     study_mode: str = "Дневная"
 ) -> tuple[int, dict[int, tuple[date, list[ScheduleChangeDTO]]]]:
     if target_date is None:
@@ -349,7 +366,7 @@ async def sync_schedule_to_db(
     raw_lessons = await api_client.fetch_schedule(week_id=week_id, course=course, study_mode=study_mode)
     
     if raw_lessons is None:
-        logger.warning(f"⚠️ Не удалось получить расписание для week_id={week_id}. База не изменена")
+        logger.warning(f"⚠️ Не удалось получить расписание для week_id={week_id} ({study_mode}). База не изменена")
         return 0, {}
 
     new_lessons = []
@@ -416,7 +433,8 @@ async def sync_schedule_to_db(
         session.add_all(new_lessons)
         
     await session.commit()
-    logger.info(f"✅ Обновлено {len(new_lessons)} пар ({course} курс, week_id={week_id})")
+    course_label = f"{course} курс" if course else "магистратура"
+    logger.info(f"✅ Обновлено {len(new_lessons)} пар ({study_mode}, {course_label}, week_id={week_id})")
 
     return len(new_lessons), formatted_diffs
 
@@ -428,7 +446,7 @@ async def sync_all_courses(session: AsyncSession, target_date: date | None = Non
     next_week = target_date + timedelta(days=7)
     after_next_week = target_date + timedelta(days=14)
 
-    # 1. Синхронизируем группы ВСЕХ
+    # 1. Синхронизируем группы бакалавриата (1-5 курсы)
     active_courses = []
     for c in range(1, 6):
         try:
@@ -440,13 +458,21 @@ async def sync_all_courses(session: AsyncSession, target_date: date | None = Non
             await session.rollback()
             logger.error(f"Ошибка синхронизации групп {c} курса: {e}")
 
+    # 2. Синхронизируем группы магистратуры
+    try:
+        await sync_groups_to_db(session, course=None, study_mode="Магистратура")
+        await asyncio.sleep(0.1)
+    except Exception as e:
+        await session.rollback()
+        logger.error(f"Ошибка синхронизации групп магистратуры: {e}")
+
     groups_res = await session.execute(select(Group.id))
     valid_group_ids = set(groups_res.scalars().all())
 
-    # 2. Синхронизируем расписание по найденным активным курсам (1-5)
     total_lessons = 0
     all_detected_changes: dict[tuple[int, date], list[ScheduleChangeDTO]] = defaultdict(list)
 
+    # 3. Синхронизируем расписание бакалавриата (активные курсы 1-5)
     for c in active_courses:
         for target_w in (target_date, next_week, after_next_week):
             try:
@@ -467,7 +493,27 @@ async def sync_all_courses(session: AsyncSession, target_date: date | None = Non
                 await session.rollback()
                 logger.error(f"Ошибка синхронизации расписания {c} курса: {e}")
 
-    # 3. Рассылаем уведомления об изменениях
+    # 4. Синхронизируем расписание магистратуры
+    for target_w in (target_date, next_week, after_next_week):
+        try:
+            count, diffs = await sync_schedule_to_db(
+                session,
+                valid_group_ids,
+                target_date=target_w,
+                course=None,
+                study_mode="Магистратура"
+            )
+            total_lessons += count
+            for g_id, (m, ch) in diffs.items():
+                if ch:
+                    all_detected_changes[(g_id, m)].extend(ch)
+
+            await asyncio.sleep(0.25)
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Ошибка синхронизации расписания магистратуры: {e}")
+
+    # 5. Рассылаем уведомления об изменениях
     if bot and all_detected_changes:
         asyncio.create_task(dispatch_schedule_changes(bot, dict(all_detected_changes)))
 
