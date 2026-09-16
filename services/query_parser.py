@@ -62,6 +62,9 @@ ONLY_MY_GROUP_REGEX = re.compile(
 COURSE_REGEX = re.compile(r"\b([1-5])\s*(?:-?(?:ый|ой|ий|й|ем|ом|е|у))?\s*курс[а-я]*\b", re.IGNORECASE)
 FREE_ROOMS_KEYWORDS = re.compile(r"\b(свободн[а-я]*|пуст[а-я]*|где\s+посидеть|где\s+сесть|где\s+свободно)\b", re.IGNORECASE)
 
+# Маркер заочной формы обучения
+ZAOCH_REGEX = re.compile(r"(?:\b(?:заочк[а-я]*|заочн[а-я]*|заоч|зао)\b|\(зао\))", re.IGNORECASE)
+
 CURRENT_LOCATION_REGEX = re.compile(
     r"\b("
     r"где\s+мы(?:\s+сейчас|\s+щас)?"
@@ -84,6 +87,12 @@ WEEK_KEYWORDS = {"неделя", "неделю", "неделе", "недели",
 def parse_schedule_query(text: str) -> dict[str, Any] | None:
     today = get_minsk_now().date()
     working_text = text.lower().strip()
+
+    # Проверка на маркер заочной формы обучения
+    target_study_mode = None
+    if ZAOCH_REGEX.search(working_text):
+        target_study_mode = "Заочная"
+        working_text = ZAOCH_REGEX.sub(" ", working_text)
 
     # 1. Поиск поточной аудитории
     room_query = None
@@ -118,18 +127,18 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
     if group_match:
         course = int(group_match.group(1))
         group_num = group_match.group(2).strip()
-        target_group = {"course": course, "group_number": group_num}
+        target_group = {"course": course, "group_number": group_num, "study_mode": target_study_mode}
         working_text = working_text[:group_match.start()] + " " + working_text[group_match.end():]
     elif standalone_match:
         num = standalone_match.group(1) or standalone_match.group(2)
-        target_group = {"course": None, "group_number": num.strip()}
+        target_group = {"course": None, "group_number": num.strip(), "study_mode": target_study_mode}
         working_text = working_text[:standalone_match.start()] + " " + working_text[standalone_match.end():]
     else:
         # Ловим просто двузначный номер:
         two_digit_match = re.search(r"\b([1-9][0-9])\b", working_text)
         if two_digit_match:
             num = two_digit_match.group(1).strip()
-            target_group = {"course": None, "group_number": num}
+            target_group = {"course": None, "group_number": num, "study_mode": target_study_mode}
             working_text = working_text[:two_digit_match.start()] + " " + working_text[two_digit_match.end():]
 
     # 4. Поиск курса
@@ -138,6 +147,8 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
     if course_match:
         target_course = int(course_match.group(1))
         working_text = working_text[:course_match.start()] + " " + working_text[course_match.end():]
+        if target_group and target_group.get("course") is None:
+            target_group["course"] = target_course
 
     is_next_week = any(w in working_text for w in ["след", "следующ", "будущ", "next"])
     only_my_group = bool(ONLY_MY_GROUP_REGEX.search(text))
@@ -159,6 +170,7 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
             "only_my_group": only_my_group,
             "target_group": target_group,
             "target_course": target_course or (target_group["course"] if target_group else None),
+            "study_mode": target_study_mode,
         }
 
     # 6. Извлечение номера пары
@@ -241,6 +253,7 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
             "date": monday,
             "day_index": 0,
             "target_group": target_group,
+            "study_mode": target_study_mode,
         }
 
     # Текущая пара / локация
@@ -251,6 +264,7 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
             "date": today,
             "day_index": day_index,
             "target_group": target_group,
+            "study_mode": target_study_mode,
         }
 
     # Слот (конкретная пара)
@@ -261,6 +275,7 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
             "date": target_date,
             "day_index": day_index,
             "target_group": target_group,
+            "study_mode": target_study_mode,
         }
 
     # Дневной запрос
@@ -270,6 +285,7 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
             "date": target_date,
             "day_index": day_index,
             "target_group": target_group,
+            "study_mode": target_study_mode,
         }
 
     return None

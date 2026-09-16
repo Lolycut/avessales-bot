@@ -7,14 +7,18 @@ from aiogram.enums import ChatType
 from database import async_session_maker
 from models import Chat
 from services.schedule_cache import schedule_cache
-from keyboards import group_chat_settings_kb, group_chat_courses_kb, group_chat_groups_kb
+from keyboards import (
+    group_chat_settings_kb, 
+    group_chat_courses_kb, 
+    group_chat_zaoch_courses_kb,
+    group_chat_groups_kb
+)
 from config import ADMIN_IDS, logger
 
 router = Router()
 
 
 async def is_user_chat_admin(bot: Bot, chat_id: int, user_id: int) -> bool:
-    """Проверка прав администратора в чате (или супер-админа бота)."""
     if user_id in ADMIN_IDS:
         return True
     try:
@@ -79,7 +83,7 @@ GROUPHELP_TEXT = (
     "• 🌅 <b>В 07:45</b> бот присылает красивую карточку расписания на день прямо в чат\n"
     "• ⚡ <b>Алерты об изменениях</b> — если деканат перенесёт или отменит пару на сайте, бот сразу пришлёт уведомление с карточкой изменений\n\n"
     "━━━━━━━━━━━━━━━━━━━━\n"
-    "💬 <b>Вопросы, баги и предложения:</b> @Patoca_la_viva"
+    "💬 <b>Вопросы, баги и предложения (в лс канала):</b> https://t.me/AvesBY"
 )
 
 
@@ -143,7 +147,14 @@ async def cmd_chat_settings(message: Message, bot: Bot):
             await session.commit()
 
     group = schedule_cache.get_group_by_id(chat_obj.group_id) if chat_obj.group_id else None
-    group_str = f"{group.course}-{group.number} ({group.name})" if group else "⚠️ <i>Не выбрана</i>"
+    if group and getattr(group, "study_mode", "") == "Магистратура":
+        group_str = f"Гр. {group.number} • {group.name} ({group.course} курс маг.)"
+    elif group and getattr(group, "study_mode", "") == "Заочная":
+        group_str = f"Гр. {group.course}-{group.number} (зао) • {group.name}"
+    elif group:
+        group_str = f"{group.course}-{group.number} ({group.name})"
+    else:
+        group_str = "⚠️ <i>Не выбрана</i>"
 
     text = (
         f"⚙️ <b>Панель управления беседой:</b>\n\n"
@@ -269,8 +280,15 @@ async def callback_select_course_for_chat(callback: CallbackQuery, bot: Bot):
         await callback.answer("⛔ Только администраторы могут менять группу чата!", show_alert=True)
         return
 
-    # Разделяем логику для курсов 1-5 и магистратуры
-    if course_str == "mag":
+    # Разделяем логику для курсов 1-5, магистратуры и заочного отделения
+    if course_str == "zao":
+        await callback.message.edit_text(
+            "💼 <b>Выберите курс заочного отделения для беседы:</b>",
+            reply_markup=group_chat_zaoch_courses_kb(chat_id)
+        )
+        await callback.answer()
+        return
+    elif course_str == "mag":
         groups = schedule_cache.get_all_magistracy_groups()
         course_title = "Магистратура"
     else:
@@ -284,6 +302,31 @@ async def callback_select_course_for_chat(callback: CallbackQuery, bot: Bot):
 
     await callback.message.edit_text(
         f"🎓 Выбран: <b>{course_title}</b>\nВыберите академическую группу вашей беседы:",
+        reply_markup=group_chat_groups_kb(chat_id, groups)
+    )
+    await callback.answer()
+
+
+# Выбор курса заочного отделения в беседе
+@router.callback_query(F.data.startswith("g_zcrs_"))
+async def callback_select_zaoch_course_for_chat(callback: CallbackQuery, bot: Bot):
+    parts = callback.data.split("_")
+    chat_id = int(parts[2])
+    course = int(parts[3])
+
+    if not await is_user_chat_admin(bot, chat_id, callback.from_user.id):
+        await callback.answer("⛔ Только администраторы могут менять группу чата!", show_alert=True)
+        return
+
+    groups = schedule_cache.get_all_zaoch_groups_for_course(course)
+    course_title = f"{course} курс (заочное отд.)"
+
+    if not groups:
+        await callback.answer(f"⚠️ Группы для «{course_title}» не найдены в базе!", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        f"💼 Выбран: <b>{course_title}</b>\nВыберите академическую группу вашей беседы:",
         reply_markup=group_chat_groups_kb(chat_id, groups)
     )
     await callback.answer()
@@ -314,6 +357,8 @@ async def callback_save_group_for_chat(callback: CallbackQuery, bot: Bot):
     group = schedule_cache.get_group_by_id(group_id)
     if group and getattr(group, "study_mode", "") == "Магистратура":
         grp_name = f"Гр. {group.number} • {group.name} ({group.course} курс маг.)"
+    elif group and getattr(group, "study_mode", "") == "Заочная":
+        grp_name = f"Гр. {group.course}-{group.number} (зао) • {group.name}"
     elif group:
         grp_name = f"{group.course}-{group.number} ({group.name})"
     else:
@@ -345,7 +390,14 @@ async def callback_back_to_chat_settings(callback: CallbackQuery, bot: Bot):
     notif = chat_obj.notifications_enabled if chat_obj else True
     chg = chat_obj.change_notifications_enabled if chat_obj else True
     group = schedule_cache.get_group_by_id(chat_obj.group_id) if (chat_obj and chat_obj.group_id) else None
-    group_str = f"{group.course}-{group.number} ({group.name})" if group else "⚠️ <i>Не выбрана</i>"
+    if group and getattr(group, "study_mode", "") == "Магистратура":
+        group_str = f"Гр. {group.number} • {group.name} ({group.course} курс маг.)"
+    elif group and getattr(group, "study_mode", "") == "Заочная":
+        group_str = f"Гр. {group.course}-{group.number} (зао) • {group.name}"
+    elif group:
+        group_str = f"{group.course}-{group.number} ({group.name})"
+    else:
+        group_str = "⚠️ <i>Не выбрана</i>"
 
     text = (
         f"⚙️ <b>Панель управления беседой:</b>\n\n"

@@ -466,13 +466,25 @@ async def sync_all_courses(session: AsyncSession, target_date: date | None = Non
         await session.rollback()
         logger.error(f"Ошибка синхронизации групп магистратуры: {e}")
 
+    # 3. Синхронизируем группы заочного отделения (1-5 курсы)
+    active_zaoch_courses = []
+    for c in range(1, 6):
+        try:
+            grp_ids = await sync_groups_to_db(session, course=c, study_mode="Заочная")
+            if grp_ids:
+                active_zaoch_courses.append(c)
+            await asyncio.sleep(0.1)
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Ошибка синхронизации групп заочного отделения {c} курса: {e}")
+
     groups_res = await session.execute(select(Group.id))
     valid_group_ids = set(groups_res.scalars().all())
 
     total_lessons = 0
     all_detected_changes: dict[tuple[int, date], list[ScheduleChangeDTO]] = defaultdict(list)
 
-    # 3. Синхронизируем расписание бакалавриата (активные курсы 1-5)
+    # 4. Синхронизируем расписание бакалавриата (активные курсы 1-5)
     for c in active_courses:
         for target_w in (target_date, next_week, after_next_week):
             try:
@@ -493,7 +505,7 @@ async def sync_all_courses(session: AsyncSession, target_date: date | None = Non
                 await session.rollback()
                 logger.error(f"Ошибка синхронизации расписания {c} курса: {e}")
 
-    # 4. Синхронизируем расписание магистратуры
+    # 5. Синхронизируем расписание магистратуры
     for target_w in (target_date, next_week, after_next_week):
         try:
             count, diffs = await sync_schedule_to_db(
@@ -513,7 +525,28 @@ async def sync_all_courses(session: AsyncSession, target_date: date | None = Non
             await session.rollback()
             logger.error(f"Ошибка синхронизации расписания магистратуры: {e}")
 
-    # 5. Рассылаем уведомления об изменениях
+    # 6. Синхронизируем расписание заочного отделения (активные курсы 1-5)
+    for c in active_zaoch_courses:
+        for target_w in (target_date, next_week, after_next_week):
+            try:
+                count, diffs = await sync_schedule_to_db(
+                    session,
+                    valid_group_ids,
+                    target_date=target_w,
+                    course=c,
+                    study_mode="Заочная"
+                )
+                total_lessons += count
+                for g_id, (m, ch) in diffs.items():
+                    if ch:
+                        all_detected_changes[(g_id, m)].extend(ch)
+
+                await asyncio.sleep(0.25)
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Ошибка синхронизации расписания заочного отделения {c} курса: {e}")
+
+    # 7. Рассылаем уведомления об изменениях
     if bot and all_detected_changes:
         asyncio.create_task(dispatch_schedule_changes(bot, dict(all_detected_changes)))
 

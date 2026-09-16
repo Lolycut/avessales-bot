@@ -41,6 +41,13 @@ router = Router()
 def get_group_display_title(group: GroupDTO) -> str:
     if getattr(group, "study_mode", "Дневная") == "Магистратура":
         return f"🎓 Гр. {group.number} • {group.name} ({group.course} курс маг.)"
+    elif getattr(group, "study_mode", "Дневная") == "Заочная":
+        clean_num = str(group.number).strip()
+        if clean_num.startswith(f"{group.course}-"):
+            tag = f"Гр. {clean_num} (зао)"
+        else:
+            tag = f"Гр. {group.course}-{clean_num} (зао)"
+        return f"💼 {tag} • {group.name} ({group.course} курс заоч.)"
 
     clean_num = str(group.number).strip()
     if clean_num.startswith(f"{group.course}-"):
@@ -744,13 +751,15 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
     if parsed.get("target_group"):
         t_course = parsed["target_group"]["course"]
         t_num = parsed["target_group"]["group_number"]
+        t_mode = parsed["target_group"].get("study_mode")
         if t_course:
-            group = schedule_cache.find_group_by_course_and_number(t_course, t_num)
+            group = schedule_cache.find_group_by_course_and_number(t_course, t_num, study_mode=t_mode)
         else:
-            group = schedule_cache.find_group_by_number_any_course(t_num)
+            group = schedule_cache.find_group_by_number_any_course(t_num, study_mode=t_mode)
 
         if not group:
-            course_info = f" ({t_course} курс)" if t_course else ""
+            mode_info = f" ({t_mode})" if t_mode else ""
+            course_info = f" ({t_course} курс{mode_info})" if t_course else mode_info
             await message.answer(f"⚠️ Группа <b>{t_num}</b>{course_info} не найдена в базе!")
             return
         target_subgroup = 0
@@ -785,6 +794,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         target_group_dict = parsed.get("target_group")
         q_course = parsed.get("target_course")
         q_group_num = target_group_dict.get("group_number") if target_group_dict else None
+        q_mode = parsed.get("study_mode") or (target_group_dict.get("study_mode") if target_group_dict else None)
 
         if parsed.get("only_my_group") and group:
             q_course = group.course
@@ -793,7 +803,7 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
             q_course = group.course
 
         if q_group_num and not q_course:
-            found_g = schedule_cache.find_group_by_number_any_course(q_group_num)
+            found_g = schedule_cache.find_group_by_number_any_course(q_group_num, study_mode=q_mode)
             if found_g:
                 q_course = found_g.course
 

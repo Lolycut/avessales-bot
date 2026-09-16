@@ -44,13 +44,32 @@ def parse_teacher_profile(full_name: str) -> dict[str, Any]:
     surname_raw = parts[0] if parts else clean
     surname = re.sub(r"[^\w\-]", "", surname_raw).lower()
 
-    # Сбор инициалов
+    # Сбор инициалов, имени и отчества
     initials = []
-    for p in parts[1:]:
-        inits = re.findall(r"([а-яёa-z])\.?", p.lower())
-        for char in inits:
-            if char.isalpha():
-                initials.append(char)
+    first_name = ""
+    patronymic = ""
+
+    if len(parts) > 1:
+        p1 = parts[1].strip()
+        dot_inits1 = re.findall(r"([а-яёa-z])\.", p1.lower())
+        if dot_inits1:
+            initials.extend(dot_inits1)
+        else:
+            clean_p1 = re.sub(r"[^\w\-]", "", p1).lower()
+            if clean_p1:
+                first_name = clean_p1
+                initials.append(clean_p1[0])
+
+    if len(parts) > 2:
+        p2 = parts[2].strip()
+        dot_inits2 = re.findall(r"([а-яёa-z])\.", p2.lower())
+        if dot_inits2:
+            initials.extend(dot_inits2)
+        else:
+            clean_p2 = re.sub(r"[^\w\-]", "", p2).lower()
+            if clean_p2:
+                patronymic = clean_p2
+                initials.append(clean_p2[0])
 
     gender = "m"
     stem = surname
@@ -81,7 +100,9 @@ def parse_teacher_profile(full_name: str) -> dict[str, Any]:
         "surname": surname,
         "stem": stem,
         "gender": gender,
-        "initials": initials
+        "initials": initials,
+        "first_name": first_name,
+        "patronymic": patronymic
     }
 
 
@@ -156,24 +177,35 @@ def score_teacher_match(
     query_text: str,
     query_word: str,
     query_inits: list[str],
-    teacher_prof: dict[str, Any]
+    teacher_prof: dict[str, Any],
+    all_query_words: list[str] | None = None
 ) -> int:
     q_stem, q_gender = analyze_query_word(query_word)
     t_stem = teacher_prof["stem"]
     t_gender = teacher_prof["gender"]
     t_inits = teacher_prof["initials"]
+    t_first = teacher_prof.get("first_name", "")
+    t_patr = teacher_prof.get("patronymic", "")
 
-    # Проверка основы фамилии
-    is_stem_match = (q_stem == t_stem) or (
-        len(q_stem) >= 4 and len(t_stem) >= 4 and (
-            q_stem.startswith(t_stem[:4]) or t_stem.startswith(q_stem[:4])
-        ) and abs(len(q_stem) - len(t_stem)) <= 2
-    )
+    # Проверка основы фамилии: точное совпадение имеет наивысший приоритет
+    is_exact_match = (q_stem == t_stem)
+    is_fuzzy_match = False
 
-    if not is_stem_match:
+    if not is_exact_match and len(q_stem) >= 4 and len(t_stem) >= 4:
+        if abs(len(q_stem) - len(t_stem)) <= 1:
+            mismatches = 0
+            for c1, c2 in zip(q_stem, t_stem):
+                if c1 != c2:
+                    mismatches += 1
+            mismatches += abs(len(q_stem) - len(t_stem))
+            if mismatches <= 1 and (q_stem[:3] == t_stem[:3]):
+                is_fuzzy_match = True
+
+    if not is_exact_match and not is_fuzzy_match:
         return 0
 
-    score = 50
+    # Точное совпадение даёт 100 баллов, нечёткое — 40
+    score = 100 if is_exact_match else 40
 
     # Проверка инициалов (наивысший приоритет при наличии)
     if query_inits:
@@ -186,6 +218,16 @@ def score_teacher_match(
                 score -= 150  # Инициалы чужие — отсекаем
         else:
             score -= 30
+
+    # Проверка имени и отчества из текста запроса (например: "Филипцова Галина Григорьевна")
+    if all_query_words:
+        other_words = [w for w in all_query_words if w != query_word]
+        if t_first and len(t_first) >= 3:
+            if any(w == t_first or (len(w) >= 4 and (w.startswith(t_first[:4]) or t_first.startswith(w[:4]))) for w in other_words):
+                score += 60
+        if t_patr and len(t_patr) >= 4:
+            if any(w == t_patr or (len(w) >= 5 and (w.startswith(t_patr[:5]) or t_patr.startswith(w[:5]))) for w in other_words):
+                score += 60
 
     # Оценка грамматического рода и падежа
     if q_gender == "m":
@@ -246,7 +288,9 @@ class ScheduleCache:
     def __init__(self) -> None:
         self._groups_by_id: dict[int, GroupDTO] = {}
         self._groups_by_course_num: dict[tuple[int, str], GroupDTO] = {}
+        self._groups_by_mode_course_num: dict[tuple[str, int, str], GroupDTO] = {}
         self._weeks_by_course: dict[int, list[WeekDTO]] = {}
+        self._zaoch_weeks_by_course: dict[int, list[WeekDTO]] = {}
         self._magistracy_weeks: list[WeekDTO] = []
         self._lessons_by_group_week: dict[tuple[int, int], list[LessonDTO]] = {}
         self._teacher_records: dict[str, list[tuple[LessonDTO, GroupDTO, WeekDTO]]] = {}
@@ -260,7 +304,11 @@ class ScheduleCache:
 
     def get_cache_stats(self) -> dict[str, Any]:
         total_lessons = sum(len(v) for v in self._lessons_by_group_week.values())
-        total_weeks = sum(len(v) for v in self._weeks_by_course.values()) + len(self._magistracy_weeks)
+        total_weeks = (
+            sum(len(v) for v in self._weeks_by_course.values())
+            + len(self._magistracy_weeks)
+            + sum(len(v) for v in self._zaoch_weeks_by_course.values())
+        )
         return {
             "is_ready": self._is_ready,
             "groups_count": len(self._groups_by_id),
@@ -278,24 +326,33 @@ class ScheduleCache:
 
         new_groups_by_id: dict[int, GroupDTO] = {}
         new_groups_by_course_num: dict[tuple[int, str], GroupDTO] = {}
+        new_groups_by_mode_course_num: dict[tuple[str, int, str], GroupDTO] = {}
 
         for g in db_groups:
             clean_num = str(g.number).strip()
+            mode = g.study_mode or "Дневная"
             dto = GroupDTO(
                 id=g.id,
                 course=g.course,
                 number=clean_num,
                 name=g.name,
-                study_mode=g.study_mode or "Дневная"
+                study_mode=mode
             )
             new_groups_by_id[g.id] = dto
-            new_groups_by_course_num[(g.course, clean_num)] = dto
+            new_groups_by_mode_course_num[(mode, g.course, clean_num)] = dto
+
+            # Для обратной совместимости в дневной форме
+            if mode == "Дневная":
+                new_groups_by_course_num[(g.course, clean_num)] = dto
+            elif (g.course, clean_num) not in new_groups_by_course_num:
+                new_groups_by_course_num[(g.course, clean_num)] = dto
 
         weeks_res = await session.execute(select(Week).order_by(Week.start_date.desc()))
         db_weeks = weeks_res.scalars().all()
 
         new_weeks_by_id: dict[int, WeekDTO] = {}
         new_weeks_by_course: dict[int, list[WeekDTO]] = defaultdict(list)
+        new_zaoch_weeks_by_course: dict[int, list[WeekDTO]] = defaultdict(list)
         new_magistracy_weeks: list[WeekDTO] = []
 
         for w in db_weeks:
@@ -309,6 +366,8 @@ class ScheduleCache:
             new_weeks_by_id[w.id] = dto
             if mode == "Магистратура":
                 new_magistracy_weeks.append(dto)
+            elif mode == "Заочная" and w.course is not None:
+                new_zaoch_weeks_by_course[w.course].append(dto)
             elif w.course is not None:
                 new_weeks_by_course[w.course].append(dto)
 
@@ -354,7 +413,9 @@ class ScheduleCache:
 
         self._groups_by_id = new_groups_by_id
         self._groups_by_course_num = new_groups_by_course_num
+        self._groups_by_mode_course_num = new_groups_by_mode_course_num
         self._weeks_by_course = dict(new_weeks_by_course)
+        self._zaoch_weeks_by_course = dict(new_zaoch_weeks_by_course)
         self._magistracy_weeks = new_magistracy_weeks
         self._lessons_by_group_week = dict(new_lessons_by_group_week)
         self._teacher_records = dict(new_teacher_records)
@@ -363,20 +424,36 @@ class ScheduleCache:
         self._is_ready = True
 
         logger.info(
-            f"✨ [Cache] Кэш готов: {len(self._groups_by_id)} групп (1-5 курс), "
+            f"✨ [Cache] Кэш готов: {len(self._groups_by_id)} групп (дневная, заочная, маг.), "
             f"{len(db_lessons)} пар, {len(self._teachers_list)} преподавателей, {len(self._known_rooms)} учебных кабинетов"
         )
 
     def get_group_by_id(self, group_id: int) -> GroupDTO | None:
         return self._groups_by_id.get(group_id)
 
-    def find_group_by_course_and_number(self, course: int, number: str | int) -> GroupDTO | None:
+    def find_group_by_course_and_number(self, course: int, number: str | int, study_mode: str | None = None) -> GroupDTO | None:
         clean_num = str(number).strip()
-        return self._groups_by_course_num.get((course, clean_num))
+        if study_mode:
+            return self._groups_by_mode_course_num.get((study_mode, course, clean_num))
+        return (
+            self._groups_by_mode_course_num.get(("Дневная", course, clean_num))
+            or self._groups_by_mode_course_num.get(("Заочная", course, clean_num))
+            or self._groups_by_course_num.get((course, clean_num))
+        )
 
     def get_all_groups_for_course(self, course: int) -> list[GroupDTO]:
         groups = [g for g in self._groups_by_id.values() if g.course == course and g.study_mode == "Дневная"]
         groups.sort(key=lambda g: int(g.number) if g.number.isdigit() else 999)
+        return groups
+
+    def get_all_zaoch_groups(self) -> list[GroupDTO]:
+        groups = [g for g in self._groups_by_id.values() if g.study_mode == "Заочная"]
+        groups.sort(key=lambda g: (g.course, int(g.number) if str(g.number).isdigit() else 999))
+        return groups
+
+    def get_all_zaoch_groups_for_course(self, course: int) -> list[GroupDTO]:
+        groups = [g for g in self._groups_by_id.values() if g.course == course and g.study_mode == "Заочная"]
+        groups.sort(key=lambda g: int(g.number) if str(g.number).isdigit() else 999)
         return groups
 
     def get_all_magistracy_groups(self) -> list[GroupDTO]:
@@ -396,6 +473,8 @@ class ScheduleCache:
 
         if group and group.study_mode == "Магистратура":
             weeks = self._magistracy_weeks
+        elif group and group.study_mode == "Заочная":
+            weeks = self._zaoch_weeks_by_course.get(course, [])
         else:
             weeks = self._weeks_by_course.get(course, [])
 
@@ -427,7 +506,7 @@ class ScheduleCache:
             prof = parse_teacher_profile(t_name)
             max_word_score = 0
             for word in words:
-                s = score_teacher_match(query_text, word, query_inits, prof)
+                s = score_teacher_match(query_text, word, query_inits, prof, all_query_words=words)
                 if s > max_word_score:
                     max_word_score = s
 
@@ -463,6 +542,8 @@ class ScheduleCache:
         for lesson, group, week in target_records:
             if group and group.study_mode == "Магистратура":
                 g_tag = f"М{group.course}-{group.number}"
+            elif group and group.study_mode == "Заочная":
+                g_tag = f"{group.course}-{group.number} (зао)"
             else:
                 g_tag = f"{group.course}-{group.number}" if group else "?"
 
@@ -545,6 +626,23 @@ class ScheduleCache:
                             if is_match(l.subject):
                                 matched.append((l, g, target_mag_w))
 
+            # Также проверяем заочное отделение
+            zaoch_courses = [query_course] if (query_course and query_course in self._zaoch_weeks_by_course) else list(self._zaoch_weeks_by_course.keys())
+            for zc in zaoch_courses:
+                z_weeks = self._zaoch_weeks_by_course.get(zc, [])
+                target_zw = next((w for w in z_weeks if w.start_date == monday), None)
+                if not target_zw and z_weeks:
+                    target_zw = z_weeks[0]
+                if not target_zw:
+                    continue
+                for zg in self.get_all_zaoch_groups_for_course(zc):
+                    if query_group_num and str(zg.number).strip() != str(query_group_num).strip():
+                        continue
+                    z_lessons = self._lessons_by_group_week.get((zg.id, target_zw.id), [])
+                    for zl in z_lessons:
+                        if is_match(zl.subject):
+                            matched.append((zl, zg, target_zw))
+
             return act_m, matched
 
         if query_course and query_course in self._weeks_by_course:
@@ -563,11 +661,14 @@ class ScheduleCache:
 
         found_courses = sorted(list({r[1].course for r in records if r[1].study_mode == "Дневная"}))
         has_mag = any(r[1].study_mode == "Магистратура" for r in records)
+        has_zaoch = any(r[1].study_mode == "Заочная" for r in records)
 
         if query_group_num:
             badge = f"👥 Группа {query_course}-{query_group_num}" if query_course else f"👥 Группа {query_group_num}"
-        elif has_mag and not found_courses:
+        elif has_mag and not found_courses and not has_zaoch:
             badge = "🎓 Магистратура"
+        elif has_zaoch and not found_courses and not has_mag:
+            badge = "💼 Заочное отделение"
         elif len(found_courses) == 1:
             badge = f"🎓 {found_courses[0]} курс"
         elif len(found_courses) > 1:
@@ -579,6 +680,8 @@ class ScheduleCache:
         for lesson, group, week in records:
             if group and group.study_mode == "Магистратура":
                 g_tag = f"М{group.course}-{group.number}"
+            elif group and group.study_mode == "Заочная":
+                g_tag = f"{group.course}-{group.number} (зао)"
             else:
                 g_tag = f"{group.course}-{group.number}" if group else "?"
 
@@ -651,6 +754,20 @@ class ScheduleCache:
                     if is_room_match(l.room):
                         all_matches.append((l, g))
 
+        # Учитываем пары заочного отделения
+        for course, weeks in self._zaoch_weeks_by_course.items():
+            target_zw = next((w for w in weeks if w.start_date == monday), None)
+            if not target_zw and weeks:
+                target_zw = weeks[0]
+            if not target_zw:
+                continue
+
+            for g in self.get_all_zaoch_groups_for_course(course):
+                lessons = self._lessons_by_group_week.get((g.id, target_zw.id), [])
+                for l in lessons:
+                    if is_room_match(l.room):
+                        all_matches.append((l, g))
+
         if not all_matches:
             return None
 
@@ -661,6 +778,8 @@ class ScheduleCache:
         for lesson, group in all_matches:
             if group and group.study_mode == "Магистратура":
                 g_tag = f"М{group.course}-{group.number}"
+            elif group and group.study_mode == "Заочная":
+                g_tag = f"{group.course}-{group.number} (зао)"
             else:
                 g_tag = f"{group.course}-{group.number}" if group else "?"
 
@@ -729,6 +848,22 @@ class ScheduleCache:
                             if l.room:
                                 occupied_rooms.add(l.room.strip().lower())
 
+        # Учитываем занятость кабинетов заочным отделением
+        for course, weeks in self._zaoch_weeks_by_course.items():
+            target_zw = next((w for w in weeks if w.start_date == monday), None)
+            if not target_zw and weeks:
+                target_zw = weeks[0]
+            if not target_zw:
+                continue
+
+            for g in self.get_all_zaoch_groups_for_course(course):
+                lessons = self._lessons_by_group_week.get((g.id, target_zw.id), [])
+                for l in lessons:
+                    if l.day == day_index:
+                        if slot_id is None or l.slot_id == slot_id:
+                            if l.room:
+                                occupied_rooms.add(l.room.strip().lower())
+
         free_potochki = []
         for p in KNOWN_POTOCHKI:
             p_num = p[0]
@@ -789,8 +924,24 @@ class ScheduleCache:
                         slots_occupied[l.slot_id].add(r_clean)
                         all_day_occupied.add(r_clean)
 
+        # Учитываем пары заочного отделения за весь день
+        for course, weeks in self._zaoch_weeks_by_course.items():
+            target_zw = next((w for w in weeks if w.start_date == monday), None)
+            if not target_zw and weeks:
+                target_zw = weeks[0]
+            if not target_zw:
+                continue
+
+            for g in self.get_all_zaoch_groups_for_course(course):
+                lessons = self._lessons_by_group_week.get((g.id, target_zw.id), [])
+                for l in lessons:
+                    if l.day == day_index and l.room:
+                        r_clean = l.room.strip().lower()
+                        slots_occupied[l.slot_id].add(r_clean)
+                        all_day_occupied.add(r_clean)
+
         slots_summary = []
-        for slot_id in range(1, 7):
+        for slot_id in range(1, 9):
             occupied_now = slots_occupied.get(slot_id, set())
 
             free_pot = []
@@ -854,8 +1005,18 @@ class ScheduleCache:
             return self._teachers_list[idx]
         return None
 
-    def find_group_by_number_any_course(self, number: str | int) -> GroupDTO | None:
+    def find_group_by_number_any_course(self, number: str | int, study_mode: str | None = None) -> GroupDTO | None:
         clean_num = str(number).strip()
+        if study_mode:
+            for (m, course, num), group in self._groups_by_mode_course_num.items():
+                if m == study_mode and (num == clean_num or clean_num.endswith(f"-{num}") or num.endswith(f"-{clean_num}")):
+                    return group
+            return None
+
+        for (m, course, num), group in self._groups_by_mode_course_num.items():
+            if m == "Дневная" and (num == clean_num or clean_num.endswith(f"-{num}") or num.endswith(f"-{clean_num}")):
+                return group
+
         for (course, num), group in self._groups_by_course_num.items():
             if num == clean_num or clean_num.endswith(f"-{num}") or num.endswith(f"-{clean_num}"):
                 return group
@@ -863,3 +1024,5 @@ class ScheduleCache:
 
 
 schedule_cache = ScheduleCache()
+
+# Бля

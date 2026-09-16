@@ -97,8 +97,39 @@ def courses_kb() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="🎓 Магистратура", callback_data="sel_magistracy"),
             ],
+            [
+                InlineKeyboardButton(text="💼 Заочное отделение", callback_data="sel_zaoch"),
+            ],
         ]
     )
+
+
+def zaoch_courses_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="1️⃣ курс (заоч.)", callback_data="sel_zcourse_1"),
+                InlineKeyboardButton(text="2️⃣ курс (заоч.)", callback_data="sel_zcourse_2"),
+            ],
+            [
+                InlineKeyboardButton(text="3️⃣ курс (заоч.)", callback_data="sel_zcourse_3"),
+                InlineKeyboardButton(text="4️⃣ курс (заоч.)", callback_data="sel_zcourse_4"),
+            ],
+            [
+                InlineKeyboardButton(text="5️⃣ курс (заоч.)", callback_data="sel_zcourse_5"),
+            ],
+            [InlineKeyboardButton(text="⬅️ Назад к выбору формы", callback_data="back_to_courses")],
+        ]
+    )
+
+
+def zaoch_groups_kb(groups: list[GroupDTO]) -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text=f"Гр. {g.course}-{g.number} (зао) • {g.name}", callback_data=f"sel_group_{g.id}")]
+        for g in groups
+    ]
+    buttons.append([InlineKeyboardButton(text="⬅️ Выбрать другой курс", callback_data="sel_zaoch")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def magistracy_groups_kb(groups: list[GroupDTO]) -> InlineKeyboardMarkup:
@@ -265,7 +296,29 @@ def group_chat_courses_kb(chat_id: int) -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="🎓 Магистратура", callback_data=f"g_crs_{chat_id}_mag"),
             ],
+            [
+                InlineKeyboardButton(text="💼 Заочное отделение", callback_data=f"g_crs_{chat_id}_zao"),
+            ],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"g_back_{chat_id}")],
+        ]
+    )
+
+
+def group_chat_zaoch_courses_kb(chat_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="1️⃣ курс (заоч.)", callback_data=f"g_zcrs_{chat_id}_1"),
+                InlineKeyboardButton(text="2️⃣ курс (заоч.)", callback_data=f"g_zcrs_{chat_id}_2"),
+            ],
+            [
+                InlineKeyboardButton(text="3️⃣ курс (заоч.)", callback_data=f"g_zcrs_{chat_id}_3"),
+                InlineKeyboardButton(text="4️⃣ курс (заоч.)", callback_data=f"g_zcrs_{chat_id}_4"),
+            ],
+            [
+                InlineKeyboardButton(text="5️⃣ курс (заоч.)", callback_data=f"g_zcrs_{chat_id}_5"),
+            ],
+            [InlineKeyboardButton(text="⬅️ Назад к выбору формы", callback_data=f"g_pick_crs_{chat_id}")],
         ]
     )
 
@@ -273,9 +326,16 @@ def group_chat_courses_kb(chat_id: int) -> InlineKeyboardMarkup:
 def group_chat_groups_kb(chat_id: int, groups: list[GroupDTO]) -> InlineKeyboardMarkup:
     buttons = []
     for g in groups:
-        course_tag = f" ({g.course} курс)" if getattr(g, "study_mode", "") == "Магистратура" else ""
+        if getattr(g, "study_mode", "") == "Магистратура":
+            course_tag = f" ({g.course} курс маг.)"
+            label = f"Гр. {g.number} • {g.name}{course_tag}"
+        elif getattr(g, "study_mode", "") == "Заочная":
+            label = f"Гр. {g.course}-{g.number} (зао) • {g.name}"
+        else:
+            course_tag = f" ({g.course} курс)" if getattr(g, "study_mode", "") == "Магистратура" else ""
+            label = f"Гр. {g.number} • {g.name}{course_tag}"
         buttons.append([
-            InlineKeyboardButton(text=f"Гр. {g.number} • {g.name}{course_tag}", callback_data=f"g_setgrp_{chat_id}_{g.id}")
+            InlineKeyboardButton(text=label, callback_data=f"g_setgrp_{chat_id}_{g.id}")
         ])
     buttons.append([InlineKeyboardButton(text="⬅️ Выбрать другой курс", callback_data=f"g_pick_crs_{chat_id}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
