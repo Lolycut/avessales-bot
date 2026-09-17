@@ -17,6 +17,7 @@ from services.formatter import (
     format_full_week_rich_message, 
     format_teacher_rich_schedule,
     format_subject_rich_schedule,
+    build_subject_day_rich_schedule,
     format_room_rich_schedule,
     format_free_rooms_day_summary_rich,
     format_free_rooms_rich_message,
@@ -31,7 +32,9 @@ from keyboards import (
     week_nav_kb, 
     spec_view_toggle_kb, 
     teacher_week_nav_kb, 
-    subject_week_nav_kb
+    subject_week_nav_kb,
+    group_day_nav_kb,
+    subject_day_nav_kb
 )
 from config import get_minsk_now
 
@@ -609,6 +612,203 @@ async def callback_subject_toggle_group(callback: CallbackQuery, bot: Bot):
     await bot.send_rich_message(chat_id=callback.message.chat.id, rich_message=rich_msg, reply_markup=kb)
 
 
+# Листалка дней для групп
+@router.callback_query(F.data.startswith("grp_day_"))
+async def callback_group_day_nav(callback: CallbackQuery, bot: Bot):
+    try:
+        await callback.answer()
+    except TelegramBadRequest:
+        pass
+
+    parts = callback.data.split("_")
+    date_str = parts[2]
+    group_id = int(parts[3])
+    target_subgroup = int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else 0
+
+    try:
+        target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return
+
+    is_group_chat = callback.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
+    user_name = callback.message.chat.title if is_group_chat else (callback.from_user.first_name or "Студент")
+
+    if group_id == 0:
+        async with async_session_maker() as session:
+            if is_group_chat:
+                chat_obj = await session.get(Chat, callback.message.chat.id)
+                group_id = chat_obj.group_id if chat_obj else 0
+            else:
+                user = await session.get(User, callback.from_user.id)
+                group_id = user.group_id if user else 0
+                target_subgroup = (user.subgroup or 0) if user else 0
+
+    group = schedule_cache.get_group_by_id(group_id)
+    if not group:
+        return
+
+    actual_monday, lessons = schedule_cache.get_lessons_for_group(group.id, group.course, target_date)
+    group_display_title = get_group_display_title(group)
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    rich_msg = build_native_rich_schedule(
+        user_name=user_name,
+        group_name=group_display_title,
+        user_subgroup=target_subgroup,
+        day_index=target_date.weekday(),
+        target_date=target_date,
+        lessons=lessons
+    )
+    kb = group_day_nav_kb(
+        target_date=target_date,
+        group_id=group.id,
+        subgroup=target_subgroup
+    )
+    await bot.send_rich_message(chat_id=callback.message.chat.id, rich_message=rich_msg, reply_markup=kb)
+
+
+# Листалка дней для предметов
+@router.callback_query(F.data.startswith("sb_day_"))
+async def callback_subject_day_nav(callback: CallbackQuery, bot: Bot):
+    try:
+        await callback.answer()
+    except TelegramBadRequest:
+        pass
+
+    parts = callback.data.split("_")
+    date_str = parts[2]
+    q_course = int(parts[3]) if parts[3] != "0" else None
+    q_group_num = parts[4] if parts[4] != "0" else None
+    subj_id = int(parts[5])
+
+    try:
+        target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return
+
+    canon_subject = get_subject_by_id(subj_id)
+    if not canon_subject:
+        return
+
+    subject_match = schedule_cache.find_subject_schedule(
+        target_date=target_date,
+        canon_subject=canon_subject,
+        schedule_stems=SUBJECT_REGISTRY.get(canon_subject, {}).get("schedule_stems"),
+        query_course=q_course,
+        query_group_num=q_group_num
+    )
+
+    if not subject_match:
+        await callback.answer("🌴 На этой неделе пар по этому предмету нет!", show_alert=True)
+        return
+
+    subject_title, actual_monday, subject_slots, filter_badge = subject_match
+
+    async with async_session_maker() as session:
+        user = await session.get(User, callback.from_user.id)
+        user_group = schedule_cache.get_group_by_id(user.group_id) if (user and user.group_id) else None
+
+    is_filtered = bool(q_group_num and user_group and str(user_group.number).strip() == str(q_group_num).strip())
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    rich_msg = build_subject_day_rich_schedule(
+        subject_title=subject_title,
+        target_date=target_date,
+        day_index=target_date.weekday(),
+        lessons_data=subject_slots,
+        filter_badge=filter_badge
+    )
+    kb = subject_day_nav_kb(
+        target_date=target_date,
+        subj_id=subj_id,
+        course=q_course,
+        group_num=q_group_num,
+        has_user_group=bool(user_group),
+        is_my_group_filtered=is_filtered
+    )
+    await bot.send_rich_message(chat_id=callback.message.chat.id, rich_message=rich_msg, reply_markup=kb)
+
+
+# Переключение "Только моя группа" <-> "Все группы курса" в карточке дня предмета
+@router.callback_query(F.data.startswith("sb_togday_"))
+async def callback_subject_day_toggle_group(callback: CallbackQuery, bot: Bot):
+    try:
+        await callback.answer()
+    except TelegramBadRequest:
+        pass
+
+    parts = callback.data.split("_")
+    date_str = parts[2]
+    q_course = int(parts[3]) if parts[3] != "0" else None
+    mode = parts[4]  # "my" или "all"
+    subj_id = int(parts[5])
+
+    try:
+        target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return
+
+    canon_subject = get_subject_by_id(subj_id)
+    if not canon_subject:
+        return
+
+    async with async_session_maker() as session:
+        user = await session.get(User, callback.from_user.id)
+        user_group = schedule_cache.get_group_by_id(user.group_id) if (user and user.group_id) else None
+
+    if mode == "my" and user_group:
+        target_group_num = user_group.number
+        target_course = user_group.course
+    else:
+        target_group_num = None
+        target_course = q_course or (user_group.course if user_group else None)
+
+    subject_match = schedule_cache.find_subject_schedule(
+        target_date=target_date,
+        canon_subject=canon_subject,
+        schedule_stems=SUBJECT_REGISTRY.get(canon_subject, {}).get("schedule_stems"),
+        query_course=target_course,
+        query_group_num=target_group_num
+    )
+
+    if not subject_match:
+        filter_label = f"для группы {target_group_num}" if target_group_num else "на курсе"
+        await callback.answer(f"🌴 Пар {filter_label} на этой неделе не найдено!", show_alert=True)
+        return
+
+    subject_title, actual_monday, subject_slots, filter_badge = subject_match
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    rich_msg = build_subject_day_rich_schedule(
+        subject_title=subject_title,
+        target_date=target_date,
+        day_index=target_date.weekday(),
+        lessons_data=subject_slots,
+        filter_badge=filter_badge
+    )
+    kb = subject_day_nav_kb(
+        target_date=target_date,
+        subj_id=subj_id,
+        course=target_course,
+        group_num=target_group_num,
+        has_user_group=bool(user_group),
+        is_my_group_filtered=(mode == "my")
+    )
+    await bot.send_rich_message(chat_id=callback.message.chat.id, rich_message=rich_msg, reply_markup=kb)
+
+
 # ==================== ОСНОВНОЙ ТЕКСТОВЫЙ ОБРАБОТЧИК ====================
 
 @router.message(F.text)
@@ -826,7 +1026,29 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
 
         subj_id = get_subject_id(parsed["canon_subject"])
         is_my_group_filtered = bool(q_group_num and group and str(group.number).strip() == str(q_group_num).strip())
-        
+
+        # Если запрошен конкретный день (сегодня, завтра, день недели)
+        if not parsed.get("is_week"):
+            kb = subject_day_nav_kb(
+                target_date=parsed["date"],
+                subj_id=subj_id,
+                course=q_course,
+                group_num=q_group_num,
+                has_user_group=bool(group),
+                is_my_group_filtered=is_my_group_filtered
+            ) if subj_id != -1 else None
+
+            rich_msg = build_subject_day_rich_schedule(
+                subject_title=subject_title,
+                target_date=parsed["date"],
+                day_index=parsed["day_index"],
+                lessons_data=subject_slots,
+                filter_badge=filter_badge
+            )
+            await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg, reply_markup=kb)
+            return
+
+        # Иначе — полная неделя
         kb = subject_week_nav_kb(
             current_monday=actual_monday,
             subj_id=subj_id,
@@ -948,4 +1170,10 @@ async def handle_schedule_queries(message: Message, state: FSMContext, bot: Bot)
         lessons=lessons
     )
 
-    await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg)
+    day_kb = group_day_nav_kb(
+        target_date=parsed["date"],
+        group_id=group.id,
+        subgroup=target_subgroup
+    )
+
+    await bot.send_rich_message(chat_id=message.chat.id, rich_message=rich_msg, reply_markup=day_kb)

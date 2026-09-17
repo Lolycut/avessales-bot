@@ -492,6 +492,100 @@ def format_subject_rich_schedule(
     return InputRichMessage(blocks=blocks)
 
 
+# 4.1. Расписание предмета на один день
+def build_subject_day_rich_schedule(
+    subject_title: str,
+    target_date: date,
+    day_index: int,
+    lessons_data: list[SubjectSlotDTO],
+    filter_badge: str | None = None,
+) -> InputRichMessage:
+    day_name = DAYS_NAMES[day_index]
+    formatted_date = target_date.strftime("%d.%m.%Y")
+
+    day_lessons = [item for item in lessons_data if item.day == day_index]
+    day_lessons.sort(key=lambda x: (x.slot_id, x.subgroup or 0))
+
+    badge_line = f"\n{filter_badge}" if filter_badge else ""
+
+    blocks = [
+        InputRichBlockSectionHeading(
+            text=RichTextBold(
+                text=f"📚 {subject_title}{badge_line}\n📅 {day_name}, {formatted_date}"
+            ),
+            size=2,
+        )
+    ]
+
+    if not day_lessons:
+        blocks.append(
+            InputRichBlockParagraph(
+                text=RichTextItalic(text="🎉 В этот день пар по этой дисциплине нет ✨")
+            )
+        )
+        return InputRichMessage(blocks=blocks)
+
+    unique_teachers = sorted(list({short_name(item.teacher) for item in day_lessons if item.teacher}))
+    teachers_text = ", ".join(unique_teachers) if unique_teachers else "Не указан"
+    blocks.append(
+        InputRichBlockParagraph(
+            text=RichTextItalic(text=f"👨‍🏫 Преподаватели: {teachers_text}")
+        )
+    )
+
+    rows = [[
+        RichBlockTableCell(text=RichTextBold(text="Пара"), is_header=True, align="center", valign="middle"),
+        RichBlockTableCell(text=RichTextBold(text="Ауд."), is_header=True, align="center", valign="middle"),
+        RichBlockTableCell(text=RichTextBold(text="Группа"), is_header=True, align="center", valign="middle"),
+        RichBlockTableCell(text=RichTextBold(text="Преподаватель"), is_header=True, align="left", valign="middle"),
+    ]]
+
+    for l in day_lessons:
+        slot = TIMESLOTS.get(l.slot_id, {"order": str(l.slot_id), "time": "--:--"})
+        time_interval = slot["time"].replace(" - ", "–")
+
+        room_str = l.room or "—"
+        if l.address and "курчатова" not in l.address.lower():
+            room_str = f"{room_str} ⚠️"
+
+        sub_tag = f" (п/г {l.subgroup})" if l.subgroup else ""
+        type_str = f" [{l.lesson_type}]" if l.lesson_type else ""
+        comm_tag = " ✏️" if getattr(l, "comment", None) else ""
+        teacher_str = short_name(l.teacher)
+
+        rows.append([
+            RichBlockTableCell(text=f"{slot['order']} ({time_interval})", align="center", valign="middle"),
+            RichBlockTableCell(text=RichTextBold(text=room_str), align="center", valign="middle"),
+            RichBlockTableCell(text=l.groups_display, align="center", valign="middle"),
+            RichBlockTableCell(text=f"{teacher_str}{type_str}{sub_tag}{comm_tag}", align="left", valign="middle"),
+        ])
+
+    blocks.append(
+        InputRichBlockTable(
+            cells=rows,
+            is_bordered=True,
+            is_striped=True,
+        )
+    )
+
+    notes = []
+    for item in day_lessons:
+        comm = getattr(item, "comment", None)
+        if comm:
+            slot = TIMESLOTS.get(item.slot_id, {"order": str(item.slot_id)})
+            notes.append(f"✏️ {slot['order']} пара: {comm}")
+
+    if notes:
+        blocks.append(InputRichBlockDivider())
+        blocks.append(
+            InputRichBlockParagraph(
+                text=RichTextItalic(text="\n".join(notes))
+            )
+        )
+
+    return InputRichMessage(blocks=blocks)
+
+
 # 5. Оповещения об изменениях в расписании
 def build_schedule_changes_rich_message(
     group_name: str,

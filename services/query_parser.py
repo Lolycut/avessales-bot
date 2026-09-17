@@ -156,22 +156,9 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
     # 5. Поиск предмета
     subj_match = extract_subject_from_query(working_text)
     if subj_match and not room_query and not FREE_ROOMS_KEYWORDS.search(text):
-        canon_name, stems, raw_word = subj_match
-
-        target_subj_date = today + timedelta(days=7) if is_next_week else today
-
-        return {
-            "type": "subject",
-            "canon_subject": canon_name,
-            "schedule_stems": stems,
-            "raw_subject_word": raw_word,
-            "date": target_subj_date,
-            "is_next_week": is_next_week,
-            "only_my_group": only_my_group,
-            "target_group": target_group,
-            "target_course": target_course or (target_group["course"] if target_group else None),
-            "study_mode": target_study_mode,
-        }
+        _, _, raw_subj_word = subj_match
+        # Очищаем слово предмета из working_text, чтобы не мешать парсингу дня и пары
+        working_text = re.sub(rf"\b{re.escape(raw_subj_word)}\b", " ", working_text, flags=re.IGNORECASE)
 
     # 6. Извлечение номера пары
     matched_slot_id = None
@@ -216,6 +203,36 @@ def parse_schedule_query(text: str) -> dict[str, Any] | None:
             days_ahead += 7
         target_date = today + timedelta(days=days_ahead)
         day_index = matched_day_val
+
+    # Результат поиска предмета (если найден)
+    if subj_match and not room_query and not FREE_ROOMS_KEYWORDS.search(text):
+        canon_name, stems, raw_word = subj_match
+        has_week_word = any(w in WEEK_KEYWORDS for w in words)
+        is_week = has_week_word or (matched_day_val is None)
+
+        if is_week:
+            monday = today - timedelta(days=today.weekday())
+            if is_next_week or (today.weekday() >= 5 and has_week_word):
+                monday += timedelta(days=7)
+            subj_date = monday
+        else:
+            subj_date = target_date
+
+        return {
+            "type": "subject",
+            "canon_subject": canon_name,
+            "schedule_stems": stems,
+            "raw_subject_word": raw_word,
+            "date": subj_date,
+            "day_index": day_index,
+            "slot_id": matched_slot_id,
+            "is_week": is_week,
+            "is_next_week": is_next_week,
+            "only_my_group": only_my_group,
+            "target_group": target_group,
+            "target_course": target_course or (target_group["course"] if target_group else None),
+            "study_mode": target_study_mode,
+        }
 
     # Запрос свободных аудиторий
     if FREE_ROOMS_KEYWORDS.search(text):

@@ -403,3 +403,101 @@ def subject_week_nav_kb(
             ])
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+# Вспомогательный расчет дней для пагинации (с пропуском воскресенья)
+def _get_prev_next_study_days(target_date: date) -> tuple[date, date]:
+    wd = target_date.weekday()
+    if wd == 0:  # Понедельник -> назад в Субботу (-2 дня)
+        prev_d = target_date - timedelta(days=2)
+    elif wd == 6:  # Воскресенье -> назад в Субботу (-1 день)
+        prev_d = target_date - timedelta(days=1)
+    else:
+        prev_d = target_date - timedelta(days=1)
+
+    if wd == 5:  # Суббота -> вперед в Понедельник (+2 дня)
+        next_d = target_date + timedelta(days=2)
+    elif wd == 6:  # Воскресенье -> вперед в Понедельник (+1 день)
+        next_d = target_date + timedelta(days=1)
+    else:
+        next_d = target_date + timedelta(days=1)
+
+    return prev_d, next_d
+
+
+# 8. Навигация по дням для групп
+def group_day_nav_kb(
+    target_date: date,
+    group_id: int | None = None,
+    subgroup: int | None = None,
+) -> InlineKeyboardMarkup:
+    prev_day, next_day = _get_prev_next_study_days(target_date)
+    prev_date_str = prev_day.strftime("%Y-%m-%d")
+    next_date_str = next_day.strftime("%Y-%m-%d")
+
+    sub_val = subgroup if subgroup is not None else 0
+    g_id = group_id if group_id is not None else 0
+
+    monday = target_date - timedelta(days=target_date.weekday())
+    monday_str = monday.strftime("%Y-%m-%d")
+
+    buttons = [
+        [
+            InlineKeyboardButton(text="◀️ Пред. день", callback_data=f"grp_day_{prev_date_str}_{g_id}_{sub_val}"),
+            InlineKeyboardButton(text="След. день ▶️", callback_data=f"grp_day_{next_date_str}_{g_id}_{sub_val}"),
+        ],
+        [
+            InlineKeyboardButton(text="🗓 На всю неделю", callback_data=f"week_date_{monday_str}_{g_id}_{sub_val}"),
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+# 9. Навигация по дням для предметов
+def subject_day_nav_kb(
+    target_date: date,
+    subj_id: int,
+    course: int | None = None,
+    group_num: str | None = None,
+    has_user_group: bool = False,
+    is_my_group_filtered: bool = False,
+) -> InlineKeyboardMarkup:
+    prev_day, next_day = _get_prev_next_study_days(target_date)
+    prev_date_str = prev_day.strftime("%Y-%m-%d")
+    next_date_str = next_day.strftime("%Y-%m-%d")
+    curr_date_str = target_date.strftime("%Y-%m-%d")
+
+    c_val = course if course is not None else 0
+    g_val = group_num if group_num is not None else "0"
+
+    monday = target_date - timedelta(days=target_date.weekday())
+    monday_str = monday.strftime("%Y-%m-%d")
+
+    buttons = [
+        [
+            InlineKeyboardButton(text="◀️ Пред. день", callback_data=f"sb_day_{prev_date_str}_{c_val}_{g_val}_{subj_id}"),
+            InlineKeyboardButton(text="След. день ▶️", callback_data=f"sb_day_{next_date_str}_{c_val}_{g_val}_{subj_id}"),
+        ],
+        [
+            InlineKeyboardButton(text="🗓 На всю неделю", callback_data=f"sb_date_{monday_str}_{c_val}_{g_val}_{subj_id}"),
+        ]
+    ]
+
+    # Переключатель "Только моя группа / Все группы"
+    if has_user_group:
+        if is_my_group_filtered:
+            buttons.append([
+                InlineKeyboardButton(
+                    text="🌐 Показать все группы курса",
+                    callback_data=f"sb_togday_{curr_date_str}_{c_val}_all_{subj_id}"
+                )
+            ])
+        else:
+            buttons.append([
+                InlineKeyboardButton(
+                    text="🎯 Только для моей группы",
+                    callback_data=f"sb_togday_{curr_date_str}_{c_val}_my_{subj_id}"
+                )
+            ])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)

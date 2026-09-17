@@ -31,7 +31,7 @@ router.message.filter(IsAdminFilter())
 @router.message(Command("ahelp"))
 async def cmd_admin_help(message: Message):
     text = (
-        "👑 <b>Панель администратора AvesSales</b>\n\n"
+        "👑 <b>Панель администратора AvesBio</b>\n\n"
         "• <code>/stats</code> (или <code>/metrics</code>) — живые метрики активности, БД и кэш\n"
         "• <code>/allstats</code> — срез студентов и бесед по каждому курсу и группе\n"
         "• <code>/sync</code> — принудительная синхронизация с bio.bsu.by\n"
